@@ -5,7 +5,7 @@ use macroquad::prelude::{*, camera::mouse};
 use macroquad::models::Vertex;
 use super::ai::*;
 
-use super::{coord::Coord, game::{Action, Command, Game, Phase}, entities::Player};
+use super::{coord::Coord, game::{Action, Command, State, Phase}, entities::Player};
 
 pub struct GameCanvas {
     grid: Vec<[(f32, f32); 2]>,
@@ -154,7 +154,7 @@ impl GameCanvas {
     }
 
 
-    pub fn update(&mut self, game: &mut Game) {
+    pub fn update(&mut self, game: &mut State) {
         let mouse_pos = self.from_pixel(mouse_position());
         let mouse_pos = (mouse_pos.0, -mouse_pos.1);
         self.mouse_coord = game.board.closest_field_to_xy(mouse_pos.0, mouse_pos.1);
@@ -192,7 +192,7 @@ impl GameCanvas {
 
     }
 
-    pub fn render(&self, game: &Game) {
+    pub fn render(&self, game: &State) {
 
         set_camera(&Camera2D {
             zoom: vec2(1. / self.width * 2., 1. / self.height * 2.),

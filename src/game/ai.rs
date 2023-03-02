@@ -17,7 +17,7 @@ impl RandomAI {
         }
     }
 
-    pub fn turn(&mut self, game: &mut Game) {
+    pub fn turn(&mut self, game: &mut State) {
         println!("AI turn");
         self.evaluated_moves = 0;
         let mut game_clone = game.clone();
@@ -49,7 +49,7 @@ impl RandomAI {
     }
 
 
-    fn player_heuristic(&self, game: &Game, player: Player) -> f32 {
+    fn player_heuristic(&self, game: &State, player: Player) -> f32 {
         let n_markers = game.board.player_markers(player).count();
         let ring_moves: usize = game.board.player_rings(player)
             .map(|c| game.board.ring_targets(c).len())
@@ -63,11 +63,11 @@ impl RandomAI {
         (n_markers + ring_moves + points + connected_3 + connected_4 + run) as f32
     }
 
-    fn heuristic(&self, game: &Game, player: Player) -> f32 {
+    fn heuristic(&self, game: &State, player: Player) -> f32 {
         self.player_heuristic(game, player) - self.player_heuristic(game, player.other())
     }
 
-    fn alpha_beta(&mut self, game: &mut Game, depth: u32, ai_player: Player, alpha: Option<f32>, beta: Option<f32>) -> f32 {
+    fn alpha_beta(&mut self, game: &mut State, depth: u32, ai_player: Player, alpha: Option<f32>, beta: Option<f32>) -> f32 {
         let mut alpha = alpha.unwrap_or(f32::NEG_INFINITY);
         let mut beta = beta.unwrap_or(f32::INFINITY);
 

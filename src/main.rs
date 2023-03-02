@@ -23,7 +23,7 @@ async fn main() {
 
     let mut board = Board::new();
     let mut screen = GameCanvas::new(&board, 1024., 1024., width, height);
-    let mut game = Game::new();
+    let mut game = State::new();
 
     loop {
         clear_background(LIGHTGRAY);
