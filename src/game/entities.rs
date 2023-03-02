@@ -1,7 +1,7 @@
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 pub enum Player {
-    Black, 
-    White
+    Black,
+    White,
 }
 
 impl Player {
@@ -51,8 +51,7 @@ impl Piece {
     pub fn flip(&self) -> Option<Piece> {
         match *self {
             Piece::Ring(p) => None,
-            Piece::Marker(p) => Some(Piece::Marker(p.other()))
+            Piece::Marker(p) => Some(Piece::Marker(p.other())),
         }
     }
-
 }

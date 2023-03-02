@@ -15,7 +15,7 @@ pub enum Phase {
 }
 
 #[derive(Clone)]
-pub struct Game {
+pub struct State {
     pub board: Board,
     pub current_player: Player,
     pub current_phase: Phase,
@@ -27,10 +27,9 @@ pub struct Game {
     pub actions: Vec<Action>,
 }
 
-impl Game {
-
+impl State {
     pub fn new() -> Self {
-        Game {
+        State {
             board: Board::new(),
             current_player: Player::White,
             current_phase: Phase::PlaceRing,
@@ -44,42 +43,54 @@ impl Game {
 
     pub fn legal_moves(&self) -> Vec<Action> {
         match self.current_phase {
-            Phase::PlaceRing => {
-                self.board
-                    .board_coords()
-                    .iter()
-                    .filter(|x| self.board.occupied(x).is_none())
-                    .map(|c| Action::from(PlaceRing { pos: *c }))
-                    .collect()
-            },
-            Phase::PlaceMarker => {
-                self.board
-                    .player_rings(self.current_player)
-                    .map(|c| Action::from(PlaceMarker { pos: *c }))
-                    .collect::<Vec<Action>>()
-            },
-            Phase::MoveRing(from) => {
-                self.board 
-                    .ring_targets(&from)
-                    .iter()
-                    .map(|c| Action::from(MoveRing { player: self.current_player, from: from, to: *c}))
-                    .collect()
-            }
+            Phase::PlaceRing => self
+                .board
+                .board_coords()
+                .iter()
+                .filter(|x| self.board.occupied(x).is_none())
+                .map(|c| Action::from(PlaceRing { pos: *c }))
+                .collect(),
+            Phase::PlaceMarker => self
+                .board
+                .player_rings(self.current_player)
+                .map(|c| Action::from(PlaceMarker { pos: *c }))
+                .collect::<Vec<Action>>(),
+            Phase::MoveRing(from) => self
+                .board
+                .ring_targets(&from)
+                .iter()
+                .map(|c| {
+                    Action::from(MoveRing {
+                        player: self.current_player,
+                        from: from,
+                        to: *c,
+                    })
+                })
+                .collect(),
             // TODO: this does not always work for multiple simultaneous runs!!
-            Phase::RemoveRun => {
-                self.current_player_runs()
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, run)| Action::from(RemoveRun { run_idx: idx, run: run.clone(), pos: run[0] }))
-                    .collect()
-            }
-            Phase::RemoveRing => {
-                self.board
-                    .player_rings(self.current_player)
-                    .map(|c| Action::from(RemoveRing { player: self.current_player, pos: *c }))
-                    .collect::<Vec<Action>>()
-            }
-            Phase::PlayerWon(_) => Vec::new()
+            Phase::RemoveRun => self
+                .current_player_runs()
+                .iter()
+                .enumerate()
+                .map(|(idx, run)| {
+                    Action::from(RemoveRun {
+                        run_idx: idx,
+                        run: run.clone(),
+                        pos: run[0],
+                    })
+                })
+                .collect(),
+            Phase::RemoveRing => self
+                .board
+                .player_rings(self.current_player)
+                .map(|c| {
+                    Action::from(RemoveRing {
+                        player: self.current_player,
+                        pos: *c,
+                    })
+                })
+                .collect::<Vec<Action>>(),
+            Phase::PlayerWon(_) => Vec::new(),
         }
     }
 
@@ -130,7 +141,6 @@ impl Game {
             Player::White => self.runs_white.iter().find(|&r| r == run).is_some(),
             Player::Black => self.runs_black.iter().find(|&r| r == run).is_some(),
         }
-
     }
 
     pub fn inc_score(&mut self, player: &Player) {
@@ -160,14 +170,13 @@ impl Game {
         }
         None
     }
-
 }
 
 #[enum_dispatch]
 pub trait Command {
-    fn is_legal(&self, game: &Game) -> bool;
-    fn execute(&self, game: &mut Game);
-    fn undo(&self, game: &mut Game);
+    fn is_legal(&self, game: &State) -> bool;
+    fn execute(&self, game: &mut State);
+    fn undo(&self, game: &mut State);
     fn coord(&self) -> Coord;
 }
 
@@ -212,12 +221,11 @@ pub struct RemoveRing {
 }
 
 impl Command for PlaceRing {
-    fn is_legal(&self, game: &Game) -> bool {
-        game.at_phase(&Phase::PlaceRing)
-        && game.board.free_board_field(&self.pos)
+    fn is_legal(&self, game: &State) -> bool {
+        game.at_phase(&Phase::PlaceRing) && game.board.free_board_field(&self.pos)
     }
 
-    fn execute(&self, game: &mut Game) {
+    fn execute(&self, game: &mut State) {
         let piece = Piece::Ring(game.current_player);
         game.board.place_unchecked(&piece, &self.pos);
 
@@ -229,7 +237,7 @@ impl Command for PlaceRing {
         game.actions.push(Action::from(self.clone()));
     }
 
-    fn undo(&self, game: &mut Game) {
+    fn undo(&self, game: &mut State) {
         game.board.remove(&self.pos);
         game.set_phase(Phase::PlaceRing);
         game.next_player();
@@ -242,19 +250,19 @@ impl Command for PlaceRing {
 }
 
 impl Command for PlaceMarker {
-    fn is_legal(&self, game: &Game) -> bool {
-        game.at_phase(&Phase::PlaceMarker) 
-        && game.board.player_ring_at(&self.pos, &game.current_player)
+    fn is_legal(&self, game: &State) -> bool {
+        game.at_phase(&Phase::PlaceMarker)
+            && game.board.player_ring_at(&self.pos, &game.current_player)
     }
 
-    fn execute(&self, game: &mut Game) {
+    fn execute(&self, game: &mut State) {
         let piece = Piece::Marker(game.current_player);
         game.board.place_unchecked(&piece, &self.pos);
         game.set_phase(Phase::MoveRing(self.pos));
         game.actions.push(Action::from(self.clone()));
     }
 
-    fn undo(&self, game: &mut Game) {
+    fn undo(&self, game: &mut State) {
         let piece = Piece::Ring(game.current_player);
         game.board.place_unchecked(&piece, &self.pos);
         game.set_phase(Phase::PlaceMarker);
@@ -267,17 +275,19 @@ impl Command for PlaceMarker {
 }
 
 impl Command for MoveRing {
-    fn is_legal(&self, game: &Game) -> bool {
+    fn is_legal(&self, game: &State) -> bool {
         if !game.at_phase(&Phase::MoveRing(self.from)) {
             return false;
         }
-        return game.board.ring_targets(&self.from)
-                         .iter()
-                         .find(|&c| c == &self.to)
-                         .is_some();
+        return game
+            .board
+            .ring_targets(&self.from)
+            .iter()
+            .find(|&c| c == &self.to)
+            .is_some();
     }
 
-    fn execute(&self, game: &mut Game) {
+    fn execute(&self, game: &mut State) {
         let piece = Piece::Ring(game.current_player);
         game.board.place_unchecked(&piece, &self.to);
         game.board.flip_between(&self.from, &self.to);
@@ -296,7 +306,7 @@ impl Command for MoveRing {
         game.actions.push(Action::from(self.clone()));
     }
 
-    fn undo(&self, game: &mut Game) {
+    fn undo(&self, game: &mut State) {
         game.board.remove(&self.to);
         game.board.flip_between(&self.from, &self.to);
         game.current_player = self.player;
@@ -311,27 +321,26 @@ impl Command for MoveRing {
 }
 
 impl Command for RemoveRun {
-    fn is_legal(&self, game: &Game) -> bool {
-        game.at_phase(&Phase::RemoveRun) 
-        && game.is_valid_run(&game.current_player, &self.run)
+    fn is_legal(&self, game: &State) -> bool {
+        game.at_phase(&Phase::RemoveRun) && game.is_valid_run(&game.current_player, &self.run)
     }
 
-    fn execute(&self, game: &mut Game) {
-        self.run
-            .iter()
-            .for_each(|c| { game.board.remove(c); });
+    fn execute(&self, game: &mut State) {
+        self.run.iter().for_each(|c| {
+            game.board.remove(c);
+        });
 
         game.compute_runs();
         game.set_phase(Phase::RemoveRing);
         game.actions.push(Action::from(self.clone()));
     }
 
-    fn undo(&self, game: &mut Game) {
+    fn undo(&self, game: &mut State) {
         game.set_phase(Phase::RemoveRun);
         let marker = Piece::Marker(game.current_player);
-        self.run
-            .iter()
-            .for_each(|c| { game.board.place_unchecked(&marker, c); });
+        self.run.iter().for_each(|c| {
+            game.board.place_unchecked(&marker, c);
+        });
         game.compute_runs();
         game.actions.pop();
     }
@@ -339,22 +348,20 @@ impl Command for RemoveRun {
     fn coord(&self) -> Coord {
         self.pos
     }
-
 }
 
 impl Command for RemoveRing {
-    fn is_legal(&self, game: &Game) -> bool {
-        game.at_phase(&Phase::RemoveRing) 
-        && game.board.player_ring_at(&self.pos, &game.current_player)
-        && game.current_player == self.player
+    fn is_legal(&self, game: &State) -> bool {
+        game.at_phase(&Phase::RemoveRing)
+            && game.board.player_ring_at(&self.pos, &game.current_player)
+            && game.current_player == self.player
     }
 
-    fn execute(&self, game: &mut Game) {
+    fn execute(&self, game: &mut State) {
         game.board.remove(&self.pos);
 
         let current_player = game.current_player;
         game.inc_score(&current_player);
-
 
         if game.get_score(&current_player) == 3 {
             game.set_phase(Phase::PlayerWon(current_player));
@@ -367,7 +374,7 @@ impl Command for RemoveRing {
         }
 
         game.next_player();
-        
+
         if game.has_run(&game.current_player) {
             game.set_phase(Phase::RemoveRun);
         } else {
@@ -376,7 +383,7 @@ impl Command for RemoveRing {
         game.actions.push(Action::from(self.clone()));
     }
 
-    fn undo(&self, game: &mut Game) {
+    fn undo(&self, game: &mut State) {
         game.current_player = self.player;
         game.dec_score(&self.player);
         game.set_phase(Phase::RemoveRing);
@@ -388,9 +395,7 @@ impl Command for RemoveRing {
     fn coord(&self) -> Coord {
         self.pos
     }
-
 }
-
 
 #[cfg(test)]
 mod test {
@@ -398,11 +403,11 @@ mod test {
 
     #[test]
     fn test_place_ring() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
 
-        let c = Coord::new(2,4);
-        let action = PlaceRing{ pos: c };
+        let c = Coord::new(2, 4);
+        let action = PlaceRing { pos: c };
 
         assert!(action.is_legal(&game));
         action.execute(&mut game);
@@ -417,43 +422,45 @@ mod test {
 
     #[test]
     fn test_place_ring_on_occupied_not_allowed() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
 
-        let c = Coord::new(2,4);
-        game.board.place_unchecked(&Piece::Marker(Player::White), &c);
+        let c = Coord::new(2, 4);
+        game.board
+            .place_unchecked(&Piece::Marker(Player::White), &c);
 
-        let action = PlaceRing{ pos: c };
+        let action = PlaceRing { pos: c };
 
         assert!(!action.is_legal(&game));
     }
 
     #[test]
     fn test_place_ring_in_wrong_phase_not_allowed() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
         game.set_phase(Phase::PlaceMarker);
 
-        let c = Coord::new(2,4);
-        let action = PlaceRing{ pos: c };
+        let c = Coord::new(2, 4);
+        let action = PlaceRing { pos: c };
 
         assert!(!action.is_legal(&game));
     }
 
     #[test]
     fn test_place_ring_undo() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
 
-        let occupied = Coord::new(-1,1);
-        game.board.place_unchecked(&Piece::Marker(Player::White), &occupied);
+        let occupied = Coord::new(-1, 1);
+        game.board
+            .place_unchecked(&Piece::Marker(Player::White), &occupied);
 
-        let c = Coord::new(2,4);
-        let action = PlaceRing{ pos: c };
+        let c = Coord::new(2, 4);
+        let action = PlaceRing { pos: c };
 
         assert!(action.is_legal(&game));
         action.execute(&mut game);
-        
+
         assert_eq!(game.board.rings().count(), 1);
         assert_eq!(game.board.markers().count(), 1);
 
@@ -468,16 +475,15 @@ mod test {
         assert_eq!(game.board.markers().count(), 1);
     }
 
-
     #[test]
     fn test_place_marker() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
         game.set_phase(Phase::PlaceMarker);
 
-        let c = Coord::new(2,4);
+        let c = Coord::new(2, 4);
 
-        let action = PlaceMarker{ pos: c };
+        let action = PlaceMarker { pos: c };
         game.board.place_unchecked(&Piece::Ring(Player::White), &c);
         assert!(action.is_legal(&game));
 
@@ -489,56 +495,56 @@ mod test {
         assert_eq!(game.current_player, Player::White);
         matches!(game.current_phase, Phase::MoveRing(_));
     }
-    
+
     #[test]
     fn test_place_marker_without_ring() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
         game.set_phase(Phase::PlaceMarker);
 
-        let c = Coord::new(2,4);
-        let action = PlaceMarker{ pos: c };
+        let c = Coord::new(2, 4);
+        let action = PlaceMarker { pos: c };
 
         assert!(!action.is_legal(&game));
     }
 
     #[test]
     fn test_place_marker_wrong_player_ring() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
         game.set_phase(Phase::PlaceMarker);
 
-        let c = Coord::new(2,4);
+        let c = Coord::new(2, 4);
         game.board.place_unchecked(&Piece::Ring(Player::Black), &c);
-        let action = PlaceMarker{ pos: c };
+        let action = PlaceMarker { pos: c };
         assert!(!action.is_legal(&game));
 
         game.board.place_unchecked(&Piece::Ring(Player::White), &c);
-        let action = PlaceMarker{ pos: c };
+        let action = PlaceMarker { pos: c };
         assert!(action.is_legal(&game));
     }
 
     #[test]
     fn test_place_marker_in_wrong_phase_not_allowed() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
-        game.set_phase(Phase::MoveRing(Coord::new(0,0)));
+        game.set_phase(Phase::MoveRing(Coord::new(0, 0)));
 
-        let c = Coord::new(2,4);
-        let action = PlaceMarker{ pos: c };
+        let c = Coord::new(2, 4);
+        let action = PlaceMarker { pos: c };
 
         assert!(!action.is_legal(&game));
     }
 
     #[test]
     fn test_place_marker_undo() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
         game.set_phase(Phase::PlaceMarker);
 
-        let c = Coord::new(2,4);
+        let c = Coord::new(2, 4);
         game.board.place_unchecked(&Piece::Ring(Player::White), &c);
-        let action = PlaceMarker{ pos: c };
+        let action = PlaceMarker { pos: c };
         assert!(action.is_legal(&game));
 
         assert!(action.is_legal(&game));
@@ -552,14 +558,18 @@ mod test {
 
     #[test]
     fn test_move_ring_without_run() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
-        let from_coord = Coord::new(-1,-2);
+        let from_coord = Coord::new(-1, -2);
 
         game.set_phase(Phase::MoveRing(from_coord));
 
-        let to_coord = Coord::new(-1,4);
-        let action = MoveRing{ player: Player::White, from: from_coord, to: to_coord };
+        let to_coord = Coord::new(-1, 4);
+        let action = MoveRing {
+            player: Player::White,
+            from: from_coord,
+            to: to_coord,
+        };
 
         assert!(action.is_legal(&game));
         action.execute(&mut game);
@@ -572,83 +582,115 @@ mod test {
 
     #[test]
     fn test_move_ring_in_wrong_phase() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
-        let from_coord = Coord::new(-1,-2);
+        let from_coord = Coord::new(-1, -2);
 
         game.set_phase(Phase::PlaceMarker);
 
         // not connected
-        let to_coord = Coord::new(0,4);
-        let action = MoveRing{ player: Player::White, from: from_coord, to: to_coord };
+        let to_coord = Coord::new(0, 4);
+        let action = MoveRing {
+            player: Player::White,
+            from: from_coord,
+            to: to_coord,
+        };
         assert!(!action.is_legal(&game));
     }
 
     #[test]
     fn test_move_ring_to_illegal_field_not_allowed() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
-        let from_coord = Coord::new(-1,-2);
+        let from_coord = Coord::new(-1, -2);
 
         game.set_phase(Phase::MoveRing(from_coord));
 
         // not connected
-        let to_coord = Coord::new(0,4);
-        let action = MoveRing{ player: Player::White, from: from_coord, to: to_coord };
+        let to_coord = Coord::new(0, 4);
+        let action = MoveRing {
+            player: Player::White,
+            from: from_coord,
+            to: to_coord,
+        };
         assert!(!action.is_legal(&game));
 
         // marker occupied
-        let to_coord = Coord::new(-1,4);
-        let action = MoveRing{ player: Player::White, from: from_coord, to: to_coord };
+        let to_coord = Coord::new(-1, 4);
+        let action = MoveRing {
+            player: Player::White,
+            from: from_coord,
+            to: to_coord,
+        };
         assert!(action.is_legal(&game));
-        game.board.place_unchecked(&Piece::Marker(Player::Black), &to_coord);
+        game.board
+            .place_unchecked(&Piece::Marker(Player::Black), &to_coord);
         assert!(!action.is_legal(&game));
 
         // ring occupied
-        let to_coord = Coord::new(-1,-4);
-        let action = MoveRing{ player: Player::White, from: from_coord, to: to_coord };
+        let to_coord = Coord::new(-1, -4);
+        let action = MoveRing {
+            player: Player::White,
+            from: from_coord,
+            to: to_coord,
+        };
         assert!(action.is_legal(&game));
-        game.board.place_unchecked(&Piece::Ring(Player::Black), &to_coord);
+        game.board
+            .place_unchecked(&Piece::Ring(Player::Black), &to_coord);
         assert!(!action.is_legal(&game));
     }
 
-
     #[test]
     fn test_move_ring_flips_markers() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
-        let from_coord = Coord::new(-2,0);
+        let from_coord = Coord::new(-2, 0);
 
         game.set_phase(Phase::MoveRing(from_coord));
-        game.board.place_unchecked(&Piece::Marker(Player::Black), &Coord::new(0,0));
-        game.board.place_unchecked(&Piece::Marker(Player::White), &Coord::new(1,0));
+        game.board
+            .place_unchecked(&Piece::Marker(Player::Black), &Coord::new(0, 0));
+        game.board
+            .place_unchecked(&Piece::Marker(Player::White), &Coord::new(1, 0));
 
         // not connected
-        let to_coord = Coord::new(2,0);
-        let action = MoveRing{ player: Player::White, from: from_coord, to: to_coord };
+        let to_coord = Coord::new(2, 0);
+        let action = MoveRing {
+            player: Player::White,
+            from: from_coord,
+            to: to_coord,
+        };
         assert!(action.is_legal(&game));
         action.execute(&mut game);
 
-        assert!(game.board.player_marker_at(&Coord::new(0,0), &Player::White));
-        assert!(game.board.player_marker_at(&Coord::new(1,0), &Player::Black));
+        assert!(game
+            .board
+            .player_marker_at(&Coord::new(0, 0), &Player::White));
+        assert!(game
+            .board
+            .player_marker_at(&Coord::new(1, 0), &Player::Black));
         assert!(game.board.player_ring_at(&to_coord, &Player::White));
     }
 
     #[test]
     fn test_move_ring_creates_run_from_placement() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
-        let from_coord = Coord::new(-2,0);
+        let from_coord = Coord::new(-2, 0);
 
         game.set_phase(Phase::MoveRing(from_coord));
         for i in -2..=2 {
-            game.board.place_unchecked(&Piece::Marker(Player::White), &Coord::new(i,0));
+            game.board
+                .place_unchecked(&Piece::Marker(Player::White), &Coord::new(i, 0));
         }
         assert!(!game.has_run(&Player::White));
 
         // not connected
-        let to_coord = Coord::new(-2,1);
-        let action = MoveRing{ player: Player::White, from: from_coord, to: to_coord };
+        let to_coord = Coord::new(-2, 1);
+        let action = MoveRing {
+            player: Player::White,
+            from: from_coord,
+            to: to_coord,
+        };
         assert!(action.is_legal(&game));
         action.execute(&mut game);
 
@@ -660,20 +702,26 @@ mod test {
 
     #[test]
     fn test_move_ring_creates_run_from_flip() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
-        let from_coord = Coord::new(-2,-1);
+        let from_coord = Coord::new(-2, -1);
 
         game.set_phase(Phase::MoveRing(from_coord));
-        game.board.place_unchecked(&Piece::Marker(Player::Black), &Coord::new(-2,0));
+        game.board
+            .place_unchecked(&Piece::Marker(Player::Black), &Coord::new(-2, 0));
         for i in -1..=2 {
-            game.board.place_unchecked(&Piece::Marker(Player::White), &Coord::new(i,0));
+            game.board
+                .place_unchecked(&Piece::Marker(Player::White), &Coord::new(i, 0));
         }
         assert!(!game.has_run(&Player::White));
 
         // not connected
-        let to_coord = Coord::new(-2,1);
-        let action = MoveRing{ player: Player::White, from: from_coord, to: to_coord };
+        let to_coord = Coord::new(-2, 1);
+        let action = MoveRing {
+            player: Player::White,
+            from: from_coord,
+            to: to_coord,
+        };
         assert!(action.is_legal(&game));
         action.execute(&mut game);
 
@@ -685,20 +733,26 @@ mod test {
 
     #[test]
     fn test_move_ring_undo() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
-        let from_coord = Coord::new(-2,-1);
+        let from_coord = Coord::new(-2, -1);
 
         game.set_phase(Phase::MoveRing(from_coord));
-        game.board.place_unchecked(&Piece::Marker(Player::Black), &Coord::new(-2,0));
+        game.board
+            .place_unchecked(&Piece::Marker(Player::Black), &Coord::new(-2, 0));
         for i in -1..=2 {
-            game.board.place_unchecked(&Piece::Marker(Player::White), &Coord::new(i,0));
+            game.board
+                .place_unchecked(&Piece::Marker(Player::White), &Coord::new(i, 0));
         }
         assert!(!game.has_run(&Player::White));
 
         // not connected
-        let to_coord = Coord::new(-2,1);
-        let action = MoveRing{ player: Player::White, from: from_coord, to: to_coord };
+        let to_coord = Coord::new(-2, 1);
+        let action = MoveRing {
+            player: Player::White,
+            from: from_coord,
+            to: to_coord,
+        };
         assert!(action.is_legal(&game));
         action.execute(&mut game);
 
@@ -715,16 +769,17 @@ mod test {
 
     #[test]
     fn test_remove_run() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
         game.set_phase(Phase::RemoveRun);
 
         let mut run = vec![];
 
         for i in -2..=2 {
-            let c = Coord::new(i,0);
+            let c = Coord::new(i, 0);
             run.push(c);
-            game.board.place_unchecked(&Piece::Marker(Player::White), &c);
+            game.board
+                .place_unchecked(&Piece::Marker(Player::White), &c);
         }
         // this is already set by previous step
         game.compute_runs();
@@ -735,7 +790,11 @@ mod test {
         assert_eq!(game.get_run(&Player::White, 0), Some(&run));
 
         // not connected
-        let action = RemoveRun { run: run.clone(), run_idx: 0, pos: run[0] };
+        let action = RemoveRun {
+            run: run.clone(),
+            run_idx: 0,
+            pos: run[0],
+        };
         assert!(action.is_legal(&game));
         action.execute(&mut game);
 
@@ -745,21 +804,21 @@ mod test {
         for c in run.iter() {
             assert!(!game.board.player_marker_at(c, &Player::White));
         }
-
     }
 
     #[test]
     fn test_remove_run_wrong_phase() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
         game.set_phase(Phase::PlaceMarker);
 
         let mut run = vec![];
 
         for i in -2..=2 {
-            let c = Coord::new(i,0);
+            let c = Coord::new(i, 0);
             run.push(c);
-            game.board.place_unchecked(&Piece::Marker(Player::White), &c);
+            game.board
+                .place_unchecked(&Piece::Marker(Player::White), &c);
         }
         // this is already set by previous step
         game.compute_runs();
@@ -767,51 +826,65 @@ mod test {
         assert_eq!(game.get_run(&Player::White, 0), Some(&run));
 
         // not connected
-        let action = RemoveRun { run: run.clone(), run_idx: 0, pos: run[0] };
+        let action = RemoveRun {
+            run: run.clone(),
+            run_idx: 0,
+            pos: run[0],
+        };
         assert!(!action.is_legal(&game));
     }
 
     #[test]
     fn test_remove_run_illegal_index() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
         game.set_phase(Phase::PlaceMarker);
 
         let mut run = vec![];
 
         for i in -2..=2 {
-            let c = Coord::new(i,0);
+            let c = Coord::new(i, 0);
             run.push(c);
-            game.board.place_unchecked(&Piece::Marker(Player::White), &c);
+            game.board
+                .place_unchecked(&Piece::Marker(Player::White), &c);
         }
         // this is already set by previous step
         game.compute_runs();
         assert!(game.has_run(&Player::White));
 
         // not connected
-        let action = RemoveRun { run: run.clone(), run_idx: 2, pos: run[0] };
+        let action = RemoveRun {
+            run: run.clone(),
+            run_idx: 2,
+            pos: run[0],
+        };
         assert!(!action.is_legal(&game));
     }
 
     #[test]
     fn test_remove_run_undo() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
         game.set_phase(Phase::RemoveRun);
 
         let mut run = vec![];
 
         for i in -2..=2 {
-            let c = Coord::new(i,0);
+            let c = Coord::new(i, 0);
             run.push(c);
-            game.board.place_unchecked(&Piece::Marker(Player::White), &c);
+            game.board
+                .place_unchecked(&Piece::Marker(Player::White), &c);
         }
         // this is already set by previous step
         game.compute_runs();
         assert!(game.has_run(&Player::White));
 
         // not connected
-        let action = RemoveRun { run: run.clone(), run_idx: 0, pos: run[0] };
+        let action = RemoveRun {
+            run: run.clone(),
+            run_idx: 0,
+            pos: run[0],
+        };
         assert!(action.is_legal(&game));
         action.execute(&mut game);
         assert!(!game.has_run(&Player::White));
@@ -826,19 +899,21 @@ mod test {
         assert_eq!(game.current_player, Player::White);
     }
 
-
     #[test]
     fn test_remove_ring() {
         for player in [Player::White, Player::Black] {
-            let mut game = Game::new();
+            let mut game = State::new();
             game.current_player = player;
             game.set_phase(Phase::RemoveRing);
 
-            let c = Coord::new(2,3);
+            let c = Coord::new(2, 3);
             game.board.place_unchecked(&Piece::Ring(player), &c);
 
             // not connected
-            let action = RemoveRing { pos: c.clone(), player};
+            let action = RemoveRing {
+                pos: c.clone(),
+                player,
+            };
             match player {
                 Player::White => assert_eq!(game.points_white, 0),
                 Player::Black => assert_eq!(game.points_black, 0),
@@ -859,63 +934,76 @@ mod test {
 
     #[test]
     fn test_remove_ring_wrong_phase() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
         game.set_phase(Phase::PlaceMarker);
 
-        let c = Coord::new(2,3);
+        let c = Coord::new(2, 3);
         game.board.place_unchecked(&Piece::Ring(Player::White), &c);
 
         // not connected
-        let action = RemoveRing { pos: c.clone(), player: Player::White };
+        let action = RemoveRing {
+            pos: c.clone(),
+            player: Player::White,
+        };
         assert!(!action.is_legal(&game));
     }
 
     #[test]
     fn test_remove_ring_wrong_pos() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
         game.set_phase(Phase::RemoveRing);
 
-        let c = Coord::new(2,3);
+        let c = Coord::new(2, 3);
         game.board.place_unchecked(&Piece::Ring(Player::White), &c);
 
         // not connected
-        let action = RemoveRing { pos: Coord::new(0,0), player: Player::White };
+        let action = RemoveRing {
+            pos: Coord::new(0, 0),
+            player: Player::White,
+        };
         assert!(!action.is_legal(&game));
     }
 
     #[test]
     fn test_remove_ring_wrong_player() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
         game.set_phase(Phase::RemoveRing);
 
-        let c = Coord::new(2,3);
+        let c = Coord::new(2, 3);
         game.board.place_unchecked(&Piece::Ring(Player::White), &c);
 
         // not connected
-        let action = RemoveRing { pos: c.clone(), player: Player::Black };
+        let action = RemoveRing {
+            pos: c.clone(),
+            player: Player::Black,
+        };
         assert!(!action.is_legal(&game));
     }
 
     #[test]
     fn test_remove_ring_player_runs() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
         game.set_phase(Phase::RemoveRing);
 
         let mut run = vec![];
 
         for i in -2..=2 {
-            let c = Coord::new(i,0);
+            let c = Coord::new(i, 0);
             run.push(c);
-            game.board.place_unchecked(&Piece::Marker(Player::White), &c);
+            game.board
+                .place_unchecked(&Piece::Marker(Player::White), &c);
         }
 
-        let c = Coord::new(2,3);
+        let c = Coord::new(2, 3);
         game.board.place_unchecked(&Piece::Ring(Player::White), &c);
-        let action = RemoveRing { pos: c.clone(), player: Player::White };
+        let action = RemoveRing {
+            pos: c.clone(),
+            player: Player::White,
+        };
         // this is already set by previous step
         game.compute_runs();
         assert!(game.has_run(&Player::White));
@@ -932,21 +1020,25 @@ mod test {
 
     #[test]
     fn test_remove_ring_other_player_runs() {
-        let mut game = Game::new();
+        let mut game = State::new();
         game.current_player = Player::White;
         game.set_phase(Phase::RemoveRing);
 
         let mut run = vec![];
 
         for i in -2..=2 {
-            let c = Coord::new(i,0);
+            let c = Coord::new(i, 0);
             run.push(c);
-            game.board.place_unchecked(&Piece::Marker(Player::Black), &c);
+            game.board
+                .place_unchecked(&Piece::Marker(Player::Black), &c);
         }
 
-        let c = Coord::new(2,3);
+        let c = Coord::new(2, 3);
         game.board.place_unchecked(&Piece::Ring(Player::White), &c);
-        let action = RemoveRing { pos: c.clone(), player: Player::White };
+        let action = RemoveRing {
+            pos: c.clone(),
+            player: Player::White,
+        };
         // this is already set by previous step
         game.compute_runs();
         assert!(game.has_run(&Player::Black));
@@ -964,15 +1056,18 @@ mod test {
     #[test]
     fn test_remove_ring_undo() {
         for player in [Player::White, Player::Black] {
-            let mut game = Game::new();
+            let mut game = State::new();
             game.current_player = player;
             game.set_phase(Phase::RemoveRing);
 
-            let c = Coord::new(2,3);
+            let c = Coord::new(2, 3);
             game.board.place_unchecked(&Piece::Ring(player), &c);
 
             // not connected
-            let action = RemoveRing { pos: c.clone(), player};
+            let action = RemoveRing {
+                pos: c.clone(),
+                player,
+            };
             match player {
                 Player::White => assert_eq!(game.points_white, 0),
                 Player::Black => assert_eq!(game.points_black, 0),
@@ -993,8 +1088,6 @@ mod test {
             assert_eq!(game.current_player, player);
             assert_eq!(game.current_phase, Phase::RemoveRing);
             assert!(game.board.player_ring_at(&c, &player));
-
         }
     }
-    
 }
