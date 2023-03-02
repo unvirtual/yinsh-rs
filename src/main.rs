@@ -11,7 +11,7 @@ fn window_conf() -> Conf {
         window_width: 1024,
         window_height: 1024,
         high_dpi: true,
-        sample_count: 128,
+        sample_count: 1,
         ..Default::default()
     }
 }
