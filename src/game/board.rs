@@ -7,6 +7,7 @@ use itertools::PeekingNext;
 use crate::game::coord::*;
 use crate::game::entities::*;
 
+#[derive(Clone)]
 pub struct Board {
     board_map: HashMap<Coord, Piece>,
     radius: f32,
@@ -177,20 +178,35 @@ impl Board {
         let mut ret : Vec<Vec<Coord>> = vec![];
 
         for dir in [Direction::N, Direction::NE, Direction::SE].iter() {
-            println!("Player: {:?} Direction: {:?}", player, dir);
             let mut cache : HashSet<Coord> = HashSet::new();
             for mcoord in self.player_markers(*player) {
                 if cache.contains(mcoord) {
                     continue;
                 }
                 let res = self.marker_run_in_dir(player, mcoord, dir);
-                println!("start: {:?}", mcoord);
-                println!("res: {:?}", res);
                 cache.extend(&res);
                 ret.extend(res.as_slice().windows(5).map(|x| x.to_vec()));
             }
         }
         ret
+    }
+
+    pub fn n_connected_markers(&self, player: &Player, length: usize) -> usize {
+        let mut result = 0;
+        for dir in [Direction::N, Direction::NE, Direction::SE].iter() {
+            let mut cache : HashSet<Coord> = HashSet::new();
+            for mcoord in self.player_markers(*player) {
+                if cache.contains(mcoord) {
+                    continue;
+                }
+                let res = self.marker_run_in_dir(player, mcoord, dir);
+                cache.extend(&res);
+                if res.len() == length {
+                    result += 1;
+                }
+            }
+        }
+        result
     }
 
     //pub fn is_run(&self, run: Vec<Coords>)
