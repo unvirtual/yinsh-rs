@@ -1,7 +1,12 @@
-pub mod game;
-use crate::game::board::*;
-use crate::game::screen::*;
-use crate::game::game::*;
+pub mod core;
+pub mod frontend;
+pub mod common;
+
+use crate::core::board::Board;
+use crate::core::entities::Player;
+use crate::core::game::Game;
+
+use frontend::mcview::MCFrontend;
 use macroquad::prelude::*;
 use macroquad::window::Conf;
 
@@ -18,17 +23,12 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    const width : f32 = 10.;
-    const height : f32 = 10.;
-
     let mut board = Board::new();
-    let mut screen = GameCanvas::new(&board, 1024., 1024., width, height);
-    let mut game = State::new();
+    let mut frontend = MCFrontend::new(&board, 1024, 1024, 1., 1.);
+    let mut game = Game::new(Player::White, Box::new(frontend));
 
     loop {
-        clear_background(LIGHTGRAY);
-        screen.update(&mut game);
-        screen.render(&game);
+        game.tick();
         next_frame().await
     }
 }
