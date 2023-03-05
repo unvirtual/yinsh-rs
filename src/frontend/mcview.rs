@@ -1,4 +1,6 @@
 use crate::common::coord::*;
+use crate::core::actions::*;
+use crate::core::board::*;
 use crate::core::board::*;
 use crate::core::entities::*;
 use crate::core::game::*;
@@ -13,42 +15,92 @@ pub struct MCFrontend {
     height: f32,
     pixel_width: u32,
     pixel_height: u32,
-    shapes: Vec<Box<dyn Shape>>,
-    pointed_shape_idx: Option<usize>,
+    rings: Vec<Box<dyn Shape>>,
+    markers: Vec<Box<dyn Shape>>,
+    legal_moves: Vec<Action>,
+    phase: Phase,
+    current_player: Player,
+    shape_at_mouse_pointer: Option<Box<dyn Shape>>,
+    interactive: bool,
+    groups: Vec<Box<dyn Shape>>,
 }
 
 impl View for MCFrontend {
     fn update(&mut self, state: &State) {
-        self.shapes.clear();
-        state
-            .board
-            .player_rings(Player::White)
-            .for_each(|c| self.shapes.push(Box::new(RingShape::white(*c))));
-        state
-            .board
-            .player_rings(Player::Black)
-            .for_each(|c| self.shapes.push(Box::new(RingShape::black(*c))));
-        state
-            .board
-            .player_markers(Player::White)
-            .for_each(|c| self.shapes.push(Box::new(MarkerShape::white(*c))));
-        state
-            .board
-            .player_markers(Player::Black)
-            .for_each(|c| self.shapes.push(Box::new(MarkerShape::black(*c))));
+        self.current_player = state.current_player;
+        self.phase = state.current_phase;
+        self.update_shape_at_mouse_pointer(self.phase, self.current_player);
+
+        self.legal_moves = state.legal_moves();
+
+        self.rings.clear();
+        self.markers.clear();
+
+        for player in [Player::White, Player::Black] {
+            state.board.player_rings(player).for_each(|c| {
+                let mut s = Box::new(PieceShape::new_ring_at_coord(*c, player)); 
+                if player == self.current_player && self.phase == Phase::RemoveRing {
+                    s.set_state(ShapeState::Hoverable);
+                }
+                self.rings.push(s);
+            });
+
+            state.board.player_markers(player).for_each(|c| {
+                let mut s = Box::new(PieceShape::new_marker_at_coord(*c, player));
+                if player == self.current_player && self.phase == Phase::RemoveRun {
+
+                    let runs = if player == Player::Black { 
+                        &state.runs_black
+                    } else {
+                        &state.runs_white
+                    };
+
+                    if runs.iter().flatten().find(|rc| rc == &c).is_some() {
+                        s.set_state(ShapeState::Selected);
+                    }
+
+                }
+                self.markers.push(s);
+            });
+        }
+
     }
 
-    fn render(&self) {
+    fn render(&mut self) {
         clear_background(LIGHTGRAY);
         self.set_camera();
         self.draw_grid();
-        self.shapes.iter().for_each(|s| s.render());
+
+        self.legal_moves.iter().for_each(|a| {
+            let pt: Point = a.coord().into();
+            draw_circle(pt.0, pt.1, 0.1, BLUE);
+        });
+
+        // draw below objects and set properties before drawing
+        if self.interactive {
+            self.interactive_highlight(self.phase);
+        }
+
+        let mouse_pos = self.mouse_position_to_point();
+
+        self.rings.iter_mut().for_each(|s| s.render());
+        self.markers.iter_mut().for_each(|s| s.render());
+
+        if !self.interactive {
+            return;
+        }
+
+        let mouse_pos = self.mouse_pos_snapping_to_possible_moves();
+        self.shape_at_mouse_pointer.as_mut().map(|s| {
+            s.set_pos(mouse_pos);
+            s.render();
+        });
     }
 
     fn poll_user_action(&self) -> Option<UserAction> {
         if is_mouse_button_pressed(MouseButton::Left) {
             println!("Left MButton pressed");
-            if let Some(coord) = self.mouse_position_to_coord(Some(0.04)) {
+            if let Some(coord) = self.mouse_position_to_coord(Some(0.09)) {
                 println!("Close to coord {:?}", coord);
                 return Some(UserAction::ActionAtCoord(coord));
             }
@@ -63,6 +115,10 @@ impl View for MCFrontend {
 
     fn invalid_action(&self) {
         println!("MCFrontend: Invalid action");
+    }
+
+    fn set_interactive(&mut self, flag: bool) {
+        self.interactive = flag;
     }
 }
 
@@ -144,8 +200,14 @@ impl MCFrontend {
             height: (2. * radius + h_margin),
             pixel_width,
             pixel_height,
-            shapes: vec![],
-            pointed_shape_idx: None,
+            rings: vec![],
+            markers: vec![],
+            legal_moves: vec![],
+            phase: Phase::PlaceRing,
+            interactive: false,
+            current_player: Player::White,
+            shape_at_mouse_pointer: None,
+            groups: vec![]
         }
     }
 
@@ -173,20 +235,84 @@ impl MCFrontend {
         }
     }
 
+    fn mouse_position_to_legal_field(&self, max_sq_dist: Option<f32>) -> Option<HexCoord> {
+        let maxd = max_sq_dist.unwrap_or(f32::INFINITY);
+
+        let (px, py) = mouse_position();
+        let (x, y) = self.pixels_to_xy(px, py);
+        let (coord, sq_dist) = HexCoord::closest_coord_to_point(&Point(x, -y));
+
+        self.legal_moves
+            .iter()
+            .find(|a| a.coord() == coord)
+            .and(if sq_dist <= maxd { Some(coord) } else { None })
+    }
+
+    fn mouse_position_to_point(&self) -> Point {
+        let (px, py) = mouse_position();
+        let (x, y) = self.pixels_to_xy(px, py);
+        Point(x, -y)
+    }
+
     fn set_camera(&self) {
         set_camera(&Camera2D {
             zoom: vec2(1. / self.width * 2., 1. / self.height * 2.),
             target: vec2(0., 0.),
-            //rotation: 179.,
             ..Default::default()
         });
     }
 
     fn draw_grid(&self) {
         for [p0, p1] in &self.grid_lines {
-            // let p0 = self.to_pixel(p0.0, p0.1);
-            // let p1 = self.to_pixel(p1.0, p1.1);
             draw_line(p0.0, p0.1, p1.0, p1.1, 0.02, DARKGRAY);
+        }
+    }
+
+    fn clear_shape_at_mouse_pointer(&mut self) {
+        self.shape_at_mouse_pointer = None;
+    }
+
+    fn mouse_pos_snapping_to_possible_moves(&self) -> Point {
+        let mut pt = self.mouse_position_to_point();
+        if let Some(c) = self.mouse_position_to_legal_field(Some(0.09)) {
+            pt = c.into();
+        }
+        pt
+    }
+
+    fn update_shape_at_mouse_pointer(&mut self, phase: Phase, player: Player) {
+        self.clear_shape_at_mouse_pointer();
+        let pt = self.mouse_pos_snapping_to_possible_moves();
+
+        self.shape_at_mouse_pointer = match phase {
+            Phase::PlaceRing | Phase::MoveRing(_) => {
+                Some(Box::new(PieceShape::new_ring_at_point(pt, player)))
+            }
+            Phase::PlaceMarker => Some(Box::new(PieceShape::new_marker_at_point(pt, player))),
+            Phase::RemoveRun => None,
+            Phase::RemoveRing => None,
+            Phase::PlayerWon(_) => None,
+        };
+
+        if self.shape_at_mouse_pointer.is_none() {
+            return;
+        }
+
+        self.shape_at_mouse_pointer
+            .as_mut()
+            .map(|s| s.set_state(ShapeState::AtMousePointer));
+    }
+
+    fn interactive_highlight(&mut self, phase: Phase) {
+        match phase {
+            Phase::MoveRing(from) => {
+                if let Some(to) = self.mouse_position_to_legal_field(Some(0.09)) {
+                    let pt0: Point = from.into();
+                    let pt1: Point = to.into();
+                    draw_line(pt0.0, pt0.1, pt1.0, pt1.1, 0.2, BLUE);
+                }
+            }
+            _ => (),
         }
     }
 }
