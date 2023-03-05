@@ -2,7 +2,7 @@ use itertools::PeekingNext;
 use num::{self, integer::Roots};
 use std::{
     cmp,
-    ops::{Add, Sub},
+    ops::{Add, Sub, Div, Mul}, iter::Sum,
 };
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -60,6 +60,47 @@ pub fn norm_squared(p: &Point) -> f32 {
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub struct Point(pub f32, pub f32);
+
+impl Add for Point {
+    type Output = Point;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Point(self.0 + rhs.0, self.1 + rhs.1)
+    }
+}
+
+impl Sub for Point {
+    type Output = Point;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Point(self.0 - rhs.0, self.1 - rhs.1)
+    }
+}
+
+impl Sum for Point {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.fold(Self(0.,0.), |a, b| Self(
+            a.0 + b.0,
+            a.1 + b.1,
+        ))
+    }
+}
+
+impl Div<f32> for Point {
+    type Output = Point;
+
+    fn div(self, rhs: f32) -> Self::Output {
+        Self(self.0 / rhs, self.1 / rhs)
+    }
+}
+
+impl Mul<f32> for Point {
+    type Output = Point;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        Self(self.0 * rhs, self.1 * rhs)
+    }
+}
 
 impl From<HexCoord> for Point {
     fn from(value: HexCoord) -> Self {
