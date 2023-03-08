@@ -28,9 +28,9 @@ pub struct State {
 }
 
 impl State {
-    pub fn new() -> Self {
+    pub fn new(board: Board) -> Self {
         State {
-            board: Board::new(),
+            board,
             current_player: Player::White,
             current_phase: Phase::PlaceRing,
             points_white: 0,

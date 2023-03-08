@@ -220,11 +220,13 @@ impl Command for RemoveRing {
 
 #[cfg(test)]
 mod test {
+    use crate::core::board::Board;
+
     use super::*;
 
     #[test]
     fn test_place_ring() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
 
         let c = HexCoord::new(2, 4);
@@ -243,7 +245,7 @@ mod test {
 
     #[test]
     fn test_place_ring_on_occupied_not_allowed() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
 
         let c = HexCoord::new(2, 4);
@@ -257,7 +259,7 @@ mod test {
 
     #[test]
     fn test_place_ring_in_wrong_phase_not_allowed() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         game.set_phase(Phase::PlaceMarker);
 
@@ -269,7 +271,7 @@ mod test {
 
     #[test]
     fn test_place_ring_undo() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
 
         let occupied = HexCoord::new(-1, 1);
@@ -298,7 +300,7 @@ mod test {
 
     #[test]
     fn test_place_marker() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         game.set_phase(Phase::PlaceMarker);
 
@@ -319,7 +321,7 @@ mod test {
 
     #[test]
     fn test_place_marker_without_ring() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         game.set_phase(Phase::PlaceMarker);
 
@@ -331,7 +333,7 @@ mod test {
 
     #[test]
     fn test_place_marker_wrong_player_ring() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         game.set_phase(Phase::PlaceMarker);
 
@@ -347,7 +349,7 @@ mod test {
 
     #[test]
     fn test_place_marker_in_wrong_phase_not_allowed() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         game.set_phase(Phase::MoveRing(HexCoord::new(0, 0)));
 
@@ -359,7 +361,7 @@ mod test {
 
     #[test]
     fn test_place_marker_undo() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         game.set_phase(Phase::PlaceMarker);
 
@@ -379,7 +381,7 @@ mod test {
 
     #[test]
     fn test_move_ring_without_run() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         let from_coord = HexCoord::new(-1, -2);
 
@@ -403,7 +405,7 @@ mod test {
 
     #[test]
     fn test_move_ring_in_wrong_phase() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         let from_coord = HexCoord::new(-1, -2);
 
@@ -421,7 +423,7 @@ mod test {
 
     #[test]
     fn test_move_ring_to_illegal_field_not_allowed() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         let from_coord = HexCoord::new(-1, -2);
 
@@ -463,7 +465,7 @@ mod test {
 
     #[test]
     fn test_move_ring_flips_markers() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         let from_coord = HexCoord::new(-2, 0);
 
@@ -494,7 +496,7 @@ mod test {
 
     #[test]
     fn test_move_ring_creates_run_from_placement() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         let from_coord = HexCoord::new(-2, 0);
 
@@ -523,7 +525,7 @@ mod test {
 
     #[test]
     fn test_move_ring_creates_run_from_flip() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         let from_coord = HexCoord::new(-2, -1);
 
@@ -554,7 +556,7 @@ mod test {
 
     #[test]
     fn test_move_ring_undo() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         let from_coord = HexCoord::new(-2, -1);
 
@@ -590,7 +592,7 @@ mod test {
 
     #[test]
     fn test_remove_run() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         game.set_phase(Phase::RemoveRun);
 
@@ -629,7 +631,7 @@ mod test {
 
     #[test]
     fn test_remove_run_wrong_phase() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         game.set_phase(Phase::PlaceMarker);
 
@@ -657,7 +659,7 @@ mod test {
 
     #[test]
     fn test_remove_run_illegal_index() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         game.set_phase(Phase::PlaceMarker);
 
@@ -684,7 +686,7 @@ mod test {
 
     #[test]
     fn test_remove_run_undo() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         game.set_phase(Phase::RemoveRun);
 
@@ -723,7 +725,7 @@ mod test {
     #[test]
     fn test_remove_ring() {
         for player in [Player::White, Player::Black] {
-            let mut game = State::new();
+        let mut game = State::new(Board::new());
             game.current_player = player;
             game.set_phase(Phase::RemoveRing);
 
@@ -755,7 +757,7 @@ mod test {
 
     #[test]
     fn test_remove_ring_wrong_phase() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         game.set_phase(Phase::PlaceMarker);
 
@@ -772,7 +774,7 @@ mod test {
 
     #[test]
     fn test_remove_ring_wrong_pos() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         game.set_phase(Phase::RemoveRing);
 
@@ -789,7 +791,7 @@ mod test {
 
     #[test]
     fn test_remove_ring_wrong_player() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         game.set_phase(Phase::RemoveRing);
 
@@ -806,7 +808,7 @@ mod test {
 
     #[test]
     fn test_remove_ring_player_runs() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         game.set_phase(Phase::RemoveRing);
 
@@ -841,7 +843,7 @@ mod test {
 
     #[test]
     fn test_remove_ring_other_player_runs() {
-        let mut game = State::new();
+        let mut game = State::new(Board::new());
         game.current_player = Player::White;
         game.set_phase(Phase::RemoveRing);
 
@@ -877,7 +879,7 @@ mod test {
     #[test]
     fn test_remove_ring_undo() {
         for player in [Player::White, Player::Black] {
-            let mut game = State::new();
+        let mut game = State::new(Board::new());
             game.current_player = player;
             game.set_phase(Phase::RemoveRing);
 

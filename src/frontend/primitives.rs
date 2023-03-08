@@ -1,6 +1,80 @@
-use macroquad::prelude::*;
 use macroquad::models::Vertex;
+use macroquad::prelude::*;
 use std::f32::consts::PI;
+
+use crate::common::coord::{Point, HexCoordF, HexCoord};
+
+#[derive(PartialEq, Clone, Debug)]
+pub enum Message {
+    MouseEntered,
+    MouseLeft,
+    ElementMoved(Point),
+    ElementShow,
+    ElementHide,
+    MouseClicked(HexCoord),
+}
+
+pub fn build_grid_lines(radius: f32) -> Vec<[HexCoordF; 2]> {
+    let dx: f32 = 0.5 * (3. as f32).sqrt();
+    let mut res = Vec::new();
+
+    // diagonals
+    for dy in [-0.5 as f32, 0.5 as f32] {
+        let lambda: f32 = radius / (1. - dy.powi(2)).sqrt();
+        let (l0, l1) = ((-lambda).trunc() as i32, lambda.trunc() as i32);
+
+        for l in l0..=l1 {
+            let l = l as f32;
+            let det = (l.powi(2) * (dy.powi(2) - 1.) + radius.powi(2)).sqrt();
+            if det <= 0. {
+                continue;
+            }
+            let mut mu1 = -l * dy - det;
+            let mut mu2 = -l * dy + det;
+            if l.abs() > radius {
+                mu1 = mu1.ceil();
+                mu2 = mu2.floor();
+            } else {
+                mu1 = mu1.trunc();
+                mu2 = mu2.floor();
+            }
+
+            let vec = [
+                HexCoordF(mu1 * dx, l + mu1 * dy),
+                HexCoordF(mu2 * dx, l + mu2 * dy),
+            ];
+            res.push(vec);
+        }
+    }
+
+    // verticals
+    let lambda: f32 = radius * 2. / 3. * (3. as f32).sqrt();
+    let (l0, l1) = ((-lambda).trunc() as i32, lambda.trunc() as i32);
+
+    for l in l0..=l1 {
+        let l = l as f32;
+        let det = (4. * radius.powi(2) - 3. * l.powi(2)).sqrt();
+        if det <= 0. {
+            continue;
+        }
+        let mut mu1 = 0.5 * (l - det);
+        let mut mu2 = 0.5 * (l + det);
+        if l.abs() > radius {
+            mu1 = mu1.ceil();
+            mu2 = mu2.floor();
+        } else {
+            mu1 = mu1.trunc();
+            mu2 = mu2.floor();
+        }
+
+        let vec = [
+            HexCoordF(l * dx, -0.5 * l + mu1),
+            HexCoordF(l * dx, -0.5 * l + mu2),
+        ];
+        res.push(vec);
+    }
+    res
+}
 
 pub fn draw_ring_mesh(x: f32, y: f32, inner: f32, outer: f32, color: Color) {
     let mut vertices = Vec::new();
