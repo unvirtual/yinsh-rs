@@ -1,5 +1,6 @@
 use crate::common::coord::*;
 use crate::core::entities::{Piece, Player};
+use crate::core::game::UserAction;
 use crate::frontend::primitives::*;
 use macroquad::audio::PlaySoundParams;
 use macroquad::prelude::*;
@@ -18,7 +19,7 @@ pub enum ShapeState {
 
 pub trait Element {
     fn render(&self);
-    fn update(&mut self, message: &Message);
+    fn update(&mut self, message: &Message) -> Option<UserAction>;
     fn handle_events(&self, mouse_event: &MouseEvent) -> Vec<Message>;
 
     fn pos(&self) -> Point;
@@ -163,7 +164,7 @@ impl Element for PieceElement {
         }
     }
 
-    fn update(&mut self, event: &Message) {
+    fn update(&mut self, event: &Message) -> Option<UserAction> {
         println!("REceived message: {:?}", event);
         match event {
             Message::MouseEntered => self.color = self.hover_color,
@@ -171,6 +172,7 @@ impl Element for PieceElement {
             Message::ElementMoved(pt) => self.pos = *pt,
             _ => (),
         }
+        None
     }
 
     fn contains(&self, pos: Point) -> bool {
@@ -195,6 +197,69 @@ impl Element for PieceElement {
             res.push(Message::ElementMoved(pos));
         }
         res
+    }
+
+    fn z_value(&self) -> i32 {
+        self.z_value
+    }
+}
+
+pub struct FieldMarker {
+    pos: Point,
+    z_value: i32,
+    radius: f32,
+    mouse_radius: f32,
+    coord: HexCoord,
+}
+
+impl FieldMarker {
+    pub fn new(coord: HexCoord, radius: f32, mouse_radius: f32, z_value: i32) -> Self {
+        Self {
+            pos: Point::from(coord),
+            coord,
+            radius,
+            mouse_radius,
+            z_value,
+        }
+    }
+}
+
+impl Element for FieldMarker {
+    fn render(&self) {
+        draw_circle(self.pos.0, self.pos.1, self.radius, BLUE);
+    }
+
+    fn update(&mut self, message: &Message) -> Option<UserAction> {
+        match message {
+            Message::MouseClicked(_) => Some(UserAction::ActionAtCoord(self.coord)),
+            _ => None,
+        }
+    }
+
+    fn handle_events(&self, mouse_event: &MouseEvent) -> Vec<Message> {
+        let mut res = vec![];
+        if mouse_event.left_clicked && self.contains(mouse_event.pos) {
+            res.push(Message::MouseClicked(self.coord));
+        }
+        res
+    }
+
+    fn pos(&self) -> Point {
+        self.pos
+    }
+
+    fn coord(&self) -> Option<HexCoord> {
+        Some(self.coord)
+    }
+
+    fn set_state(&mut self, state: ShapeState) {}
+
+    fn set_pos(&mut self, pos: Point) {
+        self.pos = pos
+    }
+
+    fn contains(&self, pos: Point) -> bool {
+        distance_squared(&self.pos, &pos) <= self.mouse_radius.powi(2)
     }
 
     fn z_value(&self) -> i32 {
@@ -234,13 +299,14 @@ impl Element for RingMoveLineElement {
         }
     }
 
-    fn update(&mut self, message: &Message) {
+    fn update(&mut self, message: &Message) -> Option<UserAction> {
         match message {
             Message::ElementMoved(pos) => self.target = *pos,
             Message::ElementShow => self.state = ShapeState::Visible,
             Message::ElementHide => self.state = ShapeState::Invisible,
             _ => (),
         }
+        None
     }
 
     fn handle_events(&self, mouse_event: &MouseEvent) -> Vec<Message> {
@@ -351,8 +417,6 @@ impl RunBBoxElement {
             value: None,
         }
     }
-
-
 }
 
 impl Element for RunBBoxElement {
@@ -370,12 +434,18 @@ impl Element for RunBBoxElement {
         }
     }
 
-    fn update(&mut self, message: &Message) {
+    fn update(&mut self, message: &Message) -> Option<UserAction> {
         match message {
-            Message::MouseEntered => self.color = GREEN,
-            Message::MouseLeft => self.color = BLACK,
-            Message::MouseClicked(_) => self.value = self.coord,
-            _ => ()
+            Message::MouseEntered => {
+                self.color = GREEN;
+                None
+            }
+            Message::MouseLeft => {
+                self.color = BLACK;
+                None
+            }
+            Message::MouseClicked(_) => self.coord.map(|c| UserAction::ActionAtCoord(c)),
+            _ => None,
         }
     }
 
@@ -414,7 +484,7 @@ impl Element for RunBBoxElement {
             return false;
         }
 
-        (diff - proj * self.dir).length_squared() <= (height/2.).powi(2)
+        (diff - proj * self.dir).length_squared() <= (height / 2.).powi(2)
     }
 
     fn z_value(&self) -> i32 {

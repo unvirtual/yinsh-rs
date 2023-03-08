@@ -5,7 +5,7 @@ use crate::core::board::*;
 use crate::core::entities::*;
 use crate::core::state::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum UserAction {
     ActionAtCoord(HexCoord),
     Undo,
@@ -28,12 +28,14 @@ pub struct Game {
 
 impl Game {
     pub fn new(human_player: Player, view: Box<dyn View>, board: Board) -> Self {
-        Game {
+        let mut game = Game {
             state: State::new(board),
             view,
             human_player,
             ai: RandomAI::new(human_player.other(), 1),
-        }
+        };
+        game.view.update(&game.state);
+        game
     }
 
     pub fn tick(&mut self) {

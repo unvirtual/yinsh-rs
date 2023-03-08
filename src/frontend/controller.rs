@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::common::coord::Point;
+use crate::{common::coord::Point, core::game::UserAction};
 
 use super::{
     element::Element,
@@ -14,6 +14,7 @@ pub struct Controller {
     elements: HashMap<ElementId, Box<dyn Element>>,
     messages: HashMap<ElementId, Vec<Message>>,
     subscribers: HashMap<ElementId, Vec<ElementId>>,
+    actions: Vec<UserAction>,
 }
 
 impl Controller {
@@ -22,6 +23,7 @@ impl Controller {
             elements: HashMap::new(),
             messages: HashMap::new(),
             subscribers: HashMap::new(),
+            actions: vec![],
         }
     }
 
@@ -37,14 +39,8 @@ impl Controller {
         id
     }
 
-    pub fn get_messages(&self, f: impl Fn(&Message) -> bool, element_id: ElementId) -> Vec<Message> {
-        self.messages
-            .get(&element_id)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(f)
-            .collect::<Vec<_>>()
+    pub fn get_actions(&self) -> Vec<UserAction> {
+        self.actions.clone()
     }
 
     pub fn clear_all(&mut self) {
@@ -73,6 +69,7 @@ impl Controller {
     }
 
     pub fn render(&mut self) {
+        self.actions.clear();
         self.update_elements();
         self.render_elements();
     }
@@ -100,7 +97,8 @@ impl Controller {
             self.subscribers.get(&id).map(|x| {
                 x.iter().for_each(|sid| {
                     msg.iter().for_each(|m| {
-                        self.elements.get_mut(&sid).unwrap().update(&m);
+                        let action = self.elements.get_mut(&sid).unwrap().update(&m);
+                        action.map(|a| self.actions.push(a));
                     });
                 })
             });

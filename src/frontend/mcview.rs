@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Deref;
 
 use crate::common::coord::*;
 use crate::core::actions::*;
@@ -78,11 +79,11 @@ impl MCFrontend {
 
     fn update_user_actions(&mut self) {
         let mouse_event = self.mouse_handler.has_message(None);
-        if mouse_event.left_clicked {
-            if let Some(coord) = mouse_event.coord {
-                self.user_actions.push(UserAction::ActionAtCoord(coord));
-            }
-        }
+        //if mouse_event.left_clicked {
+            //if let Some(coord) = mouse_event.coord {
+                //self.user_actions.push(UserAction::ActionAtCoord(coord));
+            //}
+        //}
 
         if mouse_event.right_clicked {
             self.user_actions.push(UserAction::Undo);
@@ -97,7 +98,13 @@ impl View for MCFrontend {
 
         self.legal_moves = state.legal_moves();
 
+
         self.controller.clear_all();
+
+        self.legal_moves.iter().for_each(|action| {
+            let coord = action.coord();
+            self.controller.add_element(Box::new(FieldMarker::new(coord, 0.1, 0.3, 1)));
+        });
 
         let runs = match self.current_player {
             Player::Black => &state.runs_black,
@@ -179,35 +186,9 @@ impl View for MCFrontend {
 
         self.controller.handle_input(&mouse_event);
 
-        self.run_bboxes.iter().for_each(|id| {
-            let msgs_filtered = self
-                .controller
-                .get_messages(
-                    |msg| {
-                        if let Message::MouseClicked(_) = msg {
-                            true
-                        } else {
-                            false
-                        }
-                    },
-                    *id,
-                );
-            let msgs = msgs_filtered.iter()
-                .map(|msg| {
-                    if let Message::MouseClicked(coord) = msg {
-                        Some(UserAction::ActionAtCoord(*coord))
-                    } else {
-                        None
-                    }.unwrap()
-                }).collect::<Vec<_>>();
-
-            println!("MSGS: {:?}", msgs);
-            if msgs.len() > 0 {
-                self.user_actions.extend(msgs);
-            }
-        });
         self.update_user_actions();
         self.controller.render();
+        self.user_actions.extend(self.controller.get_actions());
     }
 
     fn poll_user_action(&mut self) -> Vec<UserAction> {
