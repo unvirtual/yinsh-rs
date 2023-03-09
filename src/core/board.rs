@@ -165,7 +165,12 @@ impl Board {
             .collect()
     }
 
-    fn marker_run_in_dir(&self, player: &Player, coord: &HexCoord, dir: &Direction) -> Vec<HexCoord> {
+    fn marker_run_in_dir(
+        &self,
+        player: &Player,
+        coord: &HexCoord,
+        dir: &Direction,
+    ) -> Vec<HexCoord> {
         if self.marker_at(coord).is_none() {
             panic!("marker_run_in_dir: no marker at coord {:?}", coord);
         }
@@ -224,18 +229,26 @@ impl Board {
 
     //pub fn is_run(&self, run: Vec<Coords>)
 
-    pub fn flip_marker(&mut self, coord: &HexCoord) {
+    pub fn flip_marker(&mut self, coord: &HexCoord) -> bool {
         if self.marker_at(coord).is_some() {
             // safe, guarded by marker_at()
             let marker = self.remove(coord).unwrap().flip().unwrap();
             self.place_unchecked(&marker, coord);
+            return true;
         }
+        false
     }
 
-    pub fn flip_between(&mut self, start: &HexCoord, end: &HexCoord) {
+    pub fn flip_between(&mut self, start: &HexCoord, end: &HexCoord) -> Vec<HexCoord> {
+        let mut res = vec![];
         if let Some(iter) = start.between_iter(end) {
-            iter.for_each(|c| self.flip_marker(&c));
+            iter.for_each(|c| {
+                if self.flip_marker(&c) {
+                    res.push(c);
+                }
+            });
         }
+        res
     }
 
     pub fn clear(&mut self) {
@@ -385,7 +398,10 @@ mod test {
         assert_eq!(runs_white.len(), 1);
         assert_eq!(
             runs_white[0],
-            markers.iter().map(|x| HexCoord::from(*x)).collect::<Vec<_>>()
+            markers
+                .iter()
+                .map(|x| HexCoord::from(*x))
+                .collect::<Vec<_>>()
         );
         assert_eq!(runs_black.len(), 0);
     }

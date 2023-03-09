@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use crate::{common::coord::Point, core::game::UserAction};
+use crate::{common::coord::Point, core::game::UiAction};
 
 use super::{
     element::Element,
     mouse::{MouseEvent, MouseHandler},
-    primitives::Message,
+    primitives::{Message, Event},
 };
 
 pub type ElementId = usize;
@@ -14,7 +14,8 @@ pub struct Controller {
     elements: HashMap<ElementId, Box<dyn Element>>,
     messages: HashMap<ElementId, Vec<Message>>,
     subscribers: HashMap<ElementId, Vec<ElementId>>,
-    actions: Vec<UserAction>,
+    actions: Vec<UiAction>,
+    events: Vec<Event>,
 }
 
 impl Controller {
@@ -24,6 +25,7 @@ impl Controller {
             messages: HashMap::new(),
             subscribers: HashMap::new(),
             actions: vec![],
+            events: vec![],
         }
     }
 
@@ -39,7 +41,7 @@ impl Controller {
         id
     }
 
-    pub fn get_actions(&self) -> Vec<UserAction> {
+    pub fn get_actions(&self) -> Vec<UiAction> {
         self.actions.clone()
     }
 
@@ -47,25 +49,26 @@ impl Controller {
         self.elements.clear();
         self.messages.clear();
         self.subscribers.clear();
+        self.actions.clear();
+        self.events.clear();
     }
 
-    pub fn get_mouse_clicks(&self) -> Vec<Message> {
-        self.messages
-            .values()
-            .flatten()
-            .filter(|msg| {
-                if let Message::MouseClicked(_) = msg {
-                    true
-                } else {
-                    false
-                }
-            })
-            .cloned()
-            .collect::<Vec<_>>()
+    pub fn schedule_event(&mut self, event: Event) {
+        self.events.push(event);
     }
-        
-    pub fn handle_input(&mut self, mouse_event: &MouseEvent) {
-        self.mouse_input(mouse_event);
+
+    pub fn handle_events(&mut self) {
+        for e in self.events.drain(0..) {
+            for (id, element) in &self.elements {
+                element
+                    .handle_event(&e)
+                    .into_iter()
+                    .for_each(|msg| {
+                        self.messages.entry(*id).or_default();
+                        self.messages.get_mut(id).unwrap().push(msg);
+                    });
+            }
+        }
     }
 
     pub fn render(&mut self) {
@@ -78,18 +81,6 @@ impl Controller {
         let mut sorted_elements: Vec<&Box<dyn Element>> = self.elements.values().collect();
         sorted_elements.sort_by(|a, b| a.z_value().cmp(&b.z_value()));
         sorted_elements.iter().for_each(|e| e.render());
-    }
-
-    fn mouse_input(&mut self, mouse_event: &MouseEvent) {
-        for (id, element) in &self.elements {
-            element
-                .handle_events(mouse_event)
-                .into_iter()
-                .for_each(|msg| {
-                    self.messages.entry(*id).or_default();
-                    self.messages.get_mut(id).unwrap().push(msg);
-                });
-        }
     }
 
     fn update_elements(&mut self) {

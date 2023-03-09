@@ -13,6 +13,15 @@ pub enum Phase {
     RemoveRing,
     PlayerWon(Player),
 }
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StateChange {
+    RingPlaced(Player, HexCoord),
+    RingMoved(Player, HexCoord, HexCoord),
+    MarkerFlipped(HexCoord),
+    MarkerPlaced(Player, HexCoord),
+    MarkerRemoved(Player, HexCoord),
+    RingRemoved(Player, HexCoord),
+}
 
 #[derive(Clone)]
 pub struct State {
@@ -25,6 +34,7 @@ pub struct State {
     pub runs_white: Vec<Vec<HexCoord>>,
     pub runs_black: Vec<Vec<HexCoord>>,
     pub history: Vec<Action>,
+    pub last_state_change: Vec<StateChange>,
 }
 
 impl State {
@@ -38,6 +48,7 @@ impl State {
             runs_white: vec![],
             runs_black: vec![],
             history: vec![],
+            last_state_change: vec![],
         }
     }
 
@@ -100,7 +111,7 @@ impl State {
 
     pub fn undo(&mut self) -> bool {
         if let Some(m) = self.history.pop() {
-            m.undo(self);
+            self.last_state_change = m.undo(self);
             return true;
         }
         false
@@ -116,11 +127,15 @@ impl State {
                 return false;
             }
             println!("EXECUTING");
-            some_move.execute(self);
+            self.last_state_change = some_move.execute(self);
             self.history.push(some_move);
             return true;
         }
         false
+    }
+
+    fn last_state_change(&self) -> Vec<StateChange> {
+        self.last_state_change.clone()
     }
 
     fn current_player_runs(&self) -> &Vec<Vec<HexCoord>> {

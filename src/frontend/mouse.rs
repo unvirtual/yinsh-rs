@@ -8,7 +8,7 @@ use crate::{
 
 use super::primitives::Message;
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub struct MouseEvent {
     pub pos: Point,
     pub last_pos: Point,

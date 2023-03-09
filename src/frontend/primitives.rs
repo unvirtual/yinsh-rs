@@ -2,7 +2,9 @@ use macroquad::models::Vertex;
 use macroquad::prelude::*;
 use std::f32::consts::PI;
 
-use crate::common::coord::{Point, HexCoordF, HexCoord};
+use crate::{common::coord::{Point, HexCoordF, HexCoord}, core::entities::Player};
+
+use super::mouse::MouseEvent;
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Message {
@@ -12,6 +14,18 @@ pub enum Message {
     ElementShow,
     ElementHide,
     MouseClicked(HexCoord),
+    Tick,
+    FlipMarker(HexCoord),
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub enum Event {
+    Mouse(MouseEvent),
+    FlipMarker(HexCoord),
+    RemoveMarker(HexCoord),
+    RemoveRing(HexCoord),
+    MoveRing(HexCoord, HexCoord),
+    PlaceRing(Player, HexCoord),
 }
 
 pub fn build_grid_lines(radius: f32) -> Vec<[HexCoordF; 2]> {

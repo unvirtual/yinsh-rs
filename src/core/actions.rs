@@ -6,8 +6,8 @@ use super::{state::*, entities::*};
 #[enum_dispatch]
 pub trait Command {
     fn is_legal(&self, game: &State) -> bool;
-    fn execute(&self, game: &mut State);
-    fn undo(&self, game: &mut State);
+    fn execute(&self, game: &mut State) -> Vec<StateChange>;
+    fn undo(&self, game: &mut State) -> Vec<StateChange>;
     fn coord(&self) -> HexCoord;
 }
 
@@ -56,21 +56,25 @@ impl Command for PlaceRing {
         game.at_phase(&Phase::PlaceRing) && game.board.free_board_field(&self.pos)
     }
 
-    fn execute(&self, game: &mut State) {
+    fn execute(&self, game: &mut State) -> Vec<StateChange> {
         let piece = Piece::Ring(game.current_player);
-        game.board.place_unchecked(&piece, &self.pos);
+        let removed = game.board.place_unchecked(&piece, &self.pos);
 
         if game.board.rings().count() > 9 {
             game.set_phase(Phase::PlaceMarker);
         }
 
         game.next_player();
+
+        vec!(StateChange::RingPlaced(game.current_player, self.pos))
     }
 
-    fn undo(&self, game: &mut State) {
+    fn undo(&self, game: &mut State) -> Vec<StateChange> {
         game.board.remove(&self.pos);
         game.set_phase(Phase::PlaceRing);
         game.next_player();
+
+        vec!(StateChange::RingRemoved(game.current_player, self.pos))
     }
 
     fn coord(&self) -> HexCoord {
@@ -84,16 +88,24 @@ impl Command for PlaceMarker {
             && game.board.player_ring_at(&self.pos, &game.current_player)
     }
 
-    fn execute(&self, game: &mut State) {
+    fn execute(&self, game: &mut State) -> Vec<StateChange> {
         let piece = Piece::Marker(game.current_player);
         game.board.place_unchecked(&piece, &self.pos);
         game.set_phase(Phase::MoveRing(self.pos));
+
+        let mut res = vec!(StateChange::RingRemoved(game.current_player, self.pos));
+        res.push(StateChange::MarkerPlaced(game.current_player, self.pos));
+        res
     }
 
-    fn undo(&self, game: &mut State) {
+    fn undo(&self, game: &mut State) -> Vec<StateChange> {
         let piece = Piece::Ring(game.current_player);
         game.board.place_unchecked(&piece, &self.pos);
         game.set_phase(Phase::PlaceMarker);
+
+        let mut res = vec!(StateChange::RingPlaced(game.current_player, self.pos));
+        res.push(StateChange::MarkerRemoved(game.current_player, self.pos));
+        res
     }
 
     fn coord(&self) -> HexCoord {
@@ -114,10 +126,10 @@ impl Command for MoveRing {
             .is_some();
     }
 
-    fn execute(&self, game: &mut State) {
+    fn execute(&self, game: &mut State) -> Vec<StateChange> {
         let piece = Piece::Ring(game.current_player);
         game.board.place_unchecked(&piece, &self.to);
-        game.board.flip_between(&self.from, &self.to);
+        let flipped = game.board.flip_between(&self.from, &self.to);
 
         game.compute_runs();
 
@@ -130,14 +142,28 @@ impl Command for MoveRing {
             game.set_phase(Phase::PlaceMarker);
             game.next_player();
         }
+
+        let mut res = vec!(StateChange::RingMoved(game.current_player, self.from, self.to));
+        for c in flipped {
+            println!("Flipped at {:?}", c);
+            println!("Current last state change {:?}", game.last_state_change);
+            res.push(StateChange::MarkerFlipped(c));
+        }
+        res
     }
 
-    fn undo(&self, game: &mut State) {
+    fn undo(&self, game: &mut State) -> Vec<StateChange> {
         game.board.remove(&self.to);
-        game.board.flip_between(&self.from, &self.to);
+        let flipped = game.board.flip_between(&self.from, &self.to);
         game.current_player = self.player;
         game.set_phase(Phase::MoveRing(self.from));
         game.compute_runs();
+
+        let mut res = vec!(StateChange::RingMoved(game.current_player, self.to, self.from));
+        for c in flipped {
+            res.push(StateChange::MarkerFlipped(c));
+        }
+        res
     }
 
     fn coord(&self) -> HexCoord {
@@ -150,22 +176,28 @@ impl Command for RemoveRun {
         game.at_phase(&Phase::RemoveRun) && game.is_valid_run(&game.current_player, &self.run)
     }
 
-    fn execute(&self, game: &mut State) {
+    fn execute(&self, game: &mut State) -> Vec<StateChange> {
+        let mut res = vec![];
         self.run.iter().for_each(|c| {
             game.board.remove(c);
+            res.push(StateChange::MarkerRemoved(game.current_player, *c));
         });
 
         game.compute_runs();
         game.set_phase(Phase::RemoveRing);
+        res
     }
 
-    fn undo(&self, game: &mut State) {
+    fn undo(&self, game: &mut State) -> Vec<StateChange> {
         game.set_phase(Phase::RemoveRun);
         let marker = Piece::Marker(game.current_player);
+        let mut res = vec![];
         self.run.iter().for_each(|c| {
             game.board.place_unchecked(&marker, c);
+            res.push(StateChange::MarkerPlaced(game.current_player, *c));
         });
         game.compute_runs();
+        res
     }
 
     fn coord(&self) -> HexCoord {
@@ -180,20 +212,21 @@ impl Command for RemoveRing {
             && game.current_player == self.player
     }
 
-    fn execute(&self, game: &mut State) {
+    fn execute(&self, game: &mut State) -> Vec<StateChange> {
         game.board.remove(&self.pos);
+        let res = vec!(StateChange::RingRemoved(game.current_player, self.pos));
 
         let current_player = game.current_player;
         game.inc_score(&current_player);
 
         if game.get_score(&current_player) == 3 {
             game.set_phase(Phase::PlayerWon(current_player));
-            return;
+            return res;
         }
 
         if game.has_run(&game.current_player) {
             game.set_phase(Phase::RemoveRun);
-            return;
+            return res;
         }
 
         game.next_player();
@@ -203,14 +236,17 @@ impl Command for RemoveRing {
         } else {
             game.set_phase(Phase::PlaceMarker);
         }
+        res
     }
 
-    fn undo(&self, game: &mut State) {
+    fn undo(&self, game: &mut State) -> Vec<StateChange> {
         game.current_player = self.player;
         game.dec_score(&self.player);
         game.set_phase(Phase::RemoveRing);
         let ring = Piece::Ring(game.current_player);
         game.board.place_unchecked(&ring, &self.pos);
+
+        vec!(StateChange::RingPlaced(game.current_player, self.pos))
     }
 
     fn coord(&self) -> HexCoord {

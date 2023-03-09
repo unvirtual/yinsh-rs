@@ -1,6 +1,6 @@
 use crate::common::coord::*;
 use crate::core::entities::{Piece, Player};
-use crate::core::game::UserAction;
+use crate::core::game::UiAction;
 use crate::frontend::primitives::*;
 use macroquad::audio::PlaySoundParams;
 use macroquad::prelude::*;
@@ -15,12 +15,13 @@ pub enum ShapeState {
     Selected,
     AtMousePointer,
     Hoverable,
+    Animated,
 }
 
 pub trait Element {
     fn render(&self);
-    fn update(&mut self, message: &Message) -> Option<UserAction>;
-    fn handle_events(&self, mouse_event: &MouseEvent) -> Vec<Message>;
+    fn update(&mut self, message: &Message) -> Option<UiAction>;
+    fn handle_event(&self, event: &Event) -> Vec<Message>;
 
     fn pos(&self) -> Point;
     fn coord(&self) -> Option<HexCoord>;
@@ -49,8 +50,40 @@ pub struct PieceElement {
     color: Color,
     default_color: Color,
     hover_color: Color,
+    other_color: Color,
     state: ShapeState,
     z_value: i32,
+    flip_animation: Option<f64>,
+}
+
+struct FlipAnimation {
+    start_time: f64,
+    duration: f64,
+    start_color: Color,
+    end_color: Color,
+    current_color: Color,
+}
+
+impl FlipAnimation {
+    fn new(start_color: Color, end_color: Color) -> Self {
+        FlipAnimation {
+            start_time: get_time(),
+            duration: 1.2,
+            start_color,
+            end_color,
+            current_color: start_color,
+        }
+    }
+
+    fn tick(&mut self) {}
+
+    fn apply(&self, piece: &mut PieceElement) {
+        piece.color = self.current_color;
+    }
+
+    fn finished(&self) -> bool {
+        get_time() - self.start_time > self.duration
+    }
 }
 
 impl PieceElement {
@@ -59,6 +92,7 @@ impl PieceElement {
         coord: Option<HexCoord>,
         shape_type: ElementType,
         color: Color,
+        other_color: Color,
         z_value: i32,
     ) -> Self {
         PieceElement {
@@ -67,21 +101,19 @@ impl PieceElement {
             shape_type,
             color,
             default_color: color,
+            other_color: other_color,
             hover_color: BLUE,
             state: ShapeState::Visible,
             z_value,
+            flip_animation: None,
         }
     }
 
     pub fn new_marker_at_coord(coord: HexCoord, player: Player, z_value: i32) -> Self {
         let pos = Point::from(coord);
-        PieceElement::new(
-            pos,
-            Some(coord),
-            ElementType::Marker(0.2),
-            player_color(player),
-            z_value,
-        )
+        let mut elem = PieceElement::new_marker_at_point(pos, player, z_value);
+        elem.coord = Some(coord);
+        elem
     }
 
     pub fn new_marker_at_point(pos: Point, player: Player, z_value: i32) -> Self {
@@ -90,19 +122,16 @@ impl PieceElement {
             None,
             ElementType::Marker(0.2),
             player_color(player),
+            player_color(player.other()),
             z_value,
         )
     }
 
     pub fn new_ring_at_coord(coord: HexCoord, player: Player, z_value: i32) -> Self {
         let pos = Point::from(coord);
-        PieceElement::new(
-            pos,
-            Some(coord),
-            ElementType::Ring(0.4, 0.2),
-            player_color(player),
-            z_value,
-        )
+        let mut elem = PieceElement::new_ring_at_point(pos, player, z_value);
+        elem.coord = Some(coord);
+        elem
     }
 
     pub fn new_ring_at_point(pos: Point, player: Player, z_value: i32) -> Self {
@@ -111,6 +140,7 @@ impl PieceElement {
             None,
             ElementType::Ring(0.4, 0.2),
             player_color(player),
+            player_color(player.other()),
             z_value,
         )
     }
@@ -164,15 +194,28 @@ impl Element for PieceElement {
         }
     }
 
-    fn update(&mut self, event: &Message) -> Option<UserAction> {
-        println!("REceived message: {:?}", event);
+    fn update(&mut self, event: &Message) -> Option<UiAction> {
+        //println!("REceived message: {:?}", event);
+        let mut res = None;
         match event {
             Message::MouseEntered => self.color = self.hover_color,
             Message::MouseLeft => self.color = self.default_color,
             Message::ElementMoved(pt) => self.pos = *pt,
+            Message::FlipMarker(_) => {
+                self.flip_animation = Some(get_time());
+                res = Some(UiAction::AnimationInProgress);
+            }
+            Message::Tick => {
+                println!("ANIM!!");
+                if self.flip_animation.is_some() && get_time() - self.flip_animation.unwrap() > 1. {
+                    res = Some(UiAction::AnimationFinished);
+                    self.flip_animation = None;
+                }
+                res = Some(UiAction::AnimationInProgress);
+            }
             _ => (),
         }
-        None
+        res
     }
 
     fn contains(&self, pos: Point) -> bool {
@@ -182,19 +225,32 @@ impl Element for PieceElement {
         }
     }
 
-    fn handle_events(&self, mouse_event: &MouseEvent) -> Vec<Message> {
+    fn handle_event(&self, event: &Event) -> Vec<Message> {
         let mut res = vec![];
-        if self.state == ShapeState::Hoverable {
-            mouse_leave_enter_event(mouse_event, |pt| self.contains(*pt)).map(|e| {
-                res.push(e);
-            });
+        match event {
+            Event::Mouse(mouse_event) => {
+                if self.state == ShapeState::Hoverable {
+                    mouse_leave_enter_event(mouse_event, |pt| self.contains(*pt)).map(|e| {
+                        res.push(e);
+                    });
+                }
+                if self.state == ShapeState::AtMousePointer {
+                    let pos = mouse_event
+                        .legal_move_coord
+                        .map(Point::from)
+                        .unwrap_or(mouse_event.pos);
+                    res.push(Message::ElementMoved(pos));
+                }
+            }
+            Event::FlipMarker(coord) => {
+                if Some(*coord) == self.coord {
+                    res.push(Message::FlipMarker(*coord));
+                }
+            }
+            _ => (),
         }
-        if self.state == ShapeState::AtMousePointer {
-            let pos = mouse_event
-                .legal_move_coord
-                .map(Point::from)
-                .unwrap_or(mouse_event.pos);
-            res.push(Message::ElementMoved(pos));
+        if self.flip_animation.is_some() {
+            res.push(Message::Tick);
         }
         res
     }
@@ -229,17 +285,22 @@ impl Element for FieldMarker {
         draw_circle(self.pos.0, self.pos.1, self.radius, BLUE);
     }
 
-    fn update(&mut self, message: &Message) -> Option<UserAction> {
+    fn update(&mut self, message: &Message) -> Option<UiAction> {
         match message {
-            Message::MouseClicked(_) => Some(UserAction::ActionAtCoord(self.coord)),
+            Message::MouseClicked(_) => Some(UiAction::ActionAtCoord(self.coord)),
             _ => None,
         }
     }
 
-    fn handle_events(&self, mouse_event: &MouseEvent) -> Vec<Message> {
+    fn handle_event(&self, event: &Event) -> Vec<Message> {
         let mut res = vec![];
-        if mouse_event.left_clicked && self.contains(mouse_event.pos) {
-            res.push(Message::MouseClicked(self.coord));
+        match event {
+            Event::Mouse(mouse_event) => {
+                if mouse_event.left_clicked && self.contains(mouse_event.pos) {
+                    res.push(Message::MouseClicked(self.coord));
+                }
+            }
+            _ => (),
         }
         res
     }
@@ -299,7 +360,7 @@ impl Element for RingMoveLineElement {
         }
     }
 
-    fn update(&mut self, message: &Message) -> Option<UserAction> {
+    fn update(&mut self, message: &Message) -> Option<UiAction> {
         match message {
             Message::ElementMoved(pos) => self.target = *pos,
             Message::ElementShow => self.state = ShapeState::Visible,
@@ -309,17 +370,22 @@ impl Element for RingMoveLineElement {
         None
     }
 
-    fn handle_events(&self, mouse_event: &MouseEvent) -> Vec<Message> {
+    fn handle_event(&self, event: &Event) -> Vec<Message> {
         let mut res = vec![];
-        if let Some(pos) = mouse_event.legal_move_coord.map(Point::from) {
-            if self.state == ShapeState::Invisible {
-                res.push(Message::ElementShow);
+        match event {
+            Event::Mouse(mouse_event) => {
+                if let Some(pos) = mouse_event.legal_move_coord.map(Point::from) {
+                    if self.state == ShapeState::Invisible {
+                        res.push(Message::ElementShow);
+                    }
+                    res.push(Message::ElementMoved(pos));
+                } else {
+                    if self.state == ShapeState::Visible {
+                        res.push(Message::ElementHide);
+                    }
+                }
             }
-            res.push(Message::ElementMoved(pos));
-        } else {
-            if self.state == ShapeState::Visible {
-                res.push(Message::ElementHide);
-            }
+            _ => (),
         }
 
         res
@@ -434,7 +500,7 @@ impl Element for RunBBoxElement {
         }
     }
 
-    fn update(&mut self, message: &Message) -> Option<UserAction> {
+    fn update(&mut self, message: &Message) -> Option<UiAction> {
         match message {
             Message::MouseEntered => {
                 self.color = GREEN;
@@ -444,18 +510,26 @@ impl Element for RunBBoxElement {
                 self.color = BLACK;
                 None
             }
-            Message::MouseClicked(_) => self.coord.map(|c| UserAction::ActionAtCoord(c)),
+            Message::MouseClicked(_) => self.coord.map(|c| UiAction::ActionAtCoord(c)),
             _ => None,
         }
     }
 
-    fn handle_events(&self, mouse_event: &MouseEvent) -> Vec<Message> {
+    fn handle_event(&self, event: &Event) -> Vec<Message> {
         let mut res = vec![];
-        mouse_leave_enter_event(mouse_event, |pt| self.contains(*pt)).map(|e| {
-            res.push(e);
-        });
-        if mouse_event.left_clicked && self.contains(mouse_event.pos) && self.coord.is_some() {
-            res.push(Message::MouseClicked(self.coord.unwrap()));
+        match event {
+            Event::Mouse(mouse_event) => {
+                mouse_leave_enter_event(mouse_event, |pt| self.contains(*pt)).map(|e| {
+                    res.push(e);
+                });
+                if mouse_event.left_clicked
+                    && self.contains(mouse_event.pos)
+                    && self.coord.is_some()
+                {
+                    res.push(Message::MouseClicked(self.coord.unwrap()));
+                }
+            }
+            _ => (),
         }
         res
     }

@@ -5,18 +5,22 @@ use crate::core::board::*;
 use crate::core::entities::*;
 use crate::core::state::*;
 
-#[derive(Debug, Clone)]
-pub enum UserAction {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UiAction {
     ActionAtCoord(HexCoord),
     Undo,
+    RequestUpdate,
+    UiUpdated,
+    NoAction,
+    AnimationFinished,
+    AnimationInProgress,
 }
 
 pub trait View {
-    fn poll_user_action(&mut self) -> Vec<UserAction>;
     fn invalid_action(&self);
-    fn update(&mut self, state: &State);
+    fn request_update(&mut self);
     fn set_interactive(&mut self, flag: bool);
-    fn render(&mut self);
+    fn tick(&mut self, state: &State) -> UiAction;
 }
 
 pub struct Game {
@@ -24,6 +28,7 @@ pub struct Game {
     view: Box<dyn View>,
     human_player: Player,
     ai: RandomAI,
+    view_update_scheduled: bool,
 }
 
 impl Game {
@@ -33,36 +38,32 @@ impl Game {
             view,
             human_player,
             ai: RandomAI::new(human_player.other(), 1),
+            view_update_scheduled: false,
         };
-        game.view.update(&game.state);
+        game.view.request_update();
         game
     }
 
     pub fn tick(&mut self) {
-        self.view.render();
-        if self.state.current_player == self.human_player {
-            self.view.set_interactive(true);
-            if self.poll_user_action_and_execute() {
-                self.view.update(&self.state);
-            } else {
-                //self.view.invalid_action();
-            }
-        } else {
-            self.view.set_interactive(false);
+        let ui_action = self.view.tick(&mut self.state);
+
+        if self.state.current_player == self.human_player.other() {
+            println!("START AI");
             self.ai.turn(&mut self.state);
-            self.view.update(&self.state);
+            self.view.request_update();
+            println!("END AI");
+            return;
+        }
+
+        let successful_action = match ui_action {
+            UiAction::ActionAtCoord(coord) => self.state.execute_for_coord(&coord),
+            UiAction::Undo => self.state.undo(),
+            _ => false,
+        };
+
+        if successful_action {
+            self.view.request_update();
         }
     }
 
-    fn poll_user_action_and_execute(&mut self) -> bool {
-        let actions = self.view.poll_user_action();
-        if actions.len() > 0 {
-            println!("Game: got actions: {:?}", actions);
-        }
-        // any here is potentially important: only the first successful action will be used, which prevents multiple actions to be triggered (which I guess is impossible, but I havent checked)
-        actions.iter().any(|user_action| match user_action {
-            UserAction::ActionAtCoord(coord) => self.state.execute_for_coord(&coord),
-            UserAction::Undo => self.state.undo(),
-        })
-    }
 }
