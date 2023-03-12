@@ -52,6 +52,69 @@ impl State {
         }
     }
 
+    pub fn new_action(&mut self) {
+        self.last_state_change.clear();
+    }
+
+    fn push_state_change(&mut self, state_change: StateChange) {
+        self.last_state_change.push(state_change);
+    }
+
+    pub fn place_ring(&mut self, player: &Player, coord: &HexCoord) {
+        let piece = Piece::Ring(*player);
+        let removed = self.board.place_unchecked(&piece, coord);
+        self.push_state_change(StateChange::RingPlaced(*player, *coord));
+
+        if let Some(piece) = removed {
+            if piece.is_marker() {
+                self.push_state_change(StateChange::MarkerRemoved(piece.owner(), *coord));
+            }
+            if piece.is_ring() {
+                self.push_state_change(StateChange::RingRemoved(piece.owner(), *coord));
+            }
+        }
+    }
+
+    pub fn move_ring(&mut self, player: &Player, from: &HexCoord, to: &HexCoord, remove_from: bool, place_to: bool) { 
+        if place_to {
+            let piece = Piece::Ring(*player);
+            self.board.place_unchecked(&piece, to);
+        }
+        if remove_from {
+            self.board.remove(from);
+        }
+        self.push_state_change(StateChange::RingMoved(*player, *from, *to));
+    }
+
+    pub fn remove_ring(&mut self, player: &Player, coord: &HexCoord) {
+        self.board.remove(coord);
+        self.push_state_change(StateChange::RingRemoved(*player, *coord));
+    }
+
+    pub fn place_marker(&mut self, player: &Player, coord: &HexCoord) {
+        let piece = Piece::Marker(*player);
+        let removed = self.board.place_unchecked(&piece, coord);
+        self.push_state_change(StateChange::RingPlaced(*player, *coord));
+        if let Some(piece) = removed {
+            if piece.is_marker() {
+                self.push_state_change(StateChange::MarkerRemoved(piece.owner(), *coord));
+            }
+            if piece.is_ring() {
+                self.push_state_change(StateChange::RingRemoved(piece.owner(), *coord));
+            }
+        }
+    }
+
+    pub fn remove_marker(&mut self, player: &Player, coord: &HexCoord) {
+        self.board.remove(coord);
+        self.push_state_change(StateChange::MarkerRemoved(*player, *coord));
+    }
+
+    pub fn flip_markers(&mut self, from: &HexCoord, to: &HexCoord) {
+        let flipped = self.board.flip_between(from, to);
+        self.last_state_change.extend(flipped.into_iter().map(StateChange::MarkerFlipped));
+    }
+
     pub fn legal_moves(&self) -> Vec<Action> {
         match self.current_phase {
             Phase::PlaceRing => self
@@ -73,7 +136,7 @@ impl State {
                 .map(|c| {
                     Action::from(MoveRing {
                         player: self.current_player,
-                        from: from,
+                        from,
                         to: *c,
                     })
                 })
