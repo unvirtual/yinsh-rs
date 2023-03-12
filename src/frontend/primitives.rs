@@ -10,6 +10,7 @@ use super::mouse::MouseEvent;
 pub enum Message {
     MouseEntered,
     MouseLeft,
+    MouseInside,
     ElementMoved(Point),
     ElementShow,
     ElementHide,

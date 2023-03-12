@@ -115,6 +115,10 @@ impl Board {
         self.filter_board(move |k, v| v.is_ring() && v.belongs_to(player))
     }
 
+    pub fn belongs_to(&self, coord: &HexCoord) -> Option<Player> {
+        self.board_map.get(coord).map(|p| p.owner())
+    }
+
     pub fn remove(&mut self, coord: &HexCoord) -> Option<Piece> {
         self.board_map.remove(coord)
     }
@@ -226,8 +230,6 @@ impl Board {
         }
         result
     }
-
-    //pub fn is_run(&self, run: Vec<Coords>)
 
     pub fn flip_marker(&mut self, coord: &HexCoord) -> bool {
         if self.marker_at(coord).is_some() {

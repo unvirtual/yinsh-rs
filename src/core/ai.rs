@@ -45,7 +45,9 @@ impl RandomAI {
             action.undo(&mut game_clone);
         }
         if let Some(action) = best_action {
+            println!("Found ACTION {:?}", action);
             action.execute(game);
+            println!("Executed!");
         }
     }
 

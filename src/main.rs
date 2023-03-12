@@ -9,7 +9,7 @@ use crate::core::entities::Player;
 use crate::core::game::Game;
 
 use common::coord::HexCoord;
-use frontend::mcview::MCFrontend;
+use frontend::frontend::Frontend;
 use macroquad::prelude::*;
 use macroquad::window::Conf;
 
@@ -33,7 +33,8 @@ async fn main() {
     board.place_unchecked(&Piece::Marker(Player::White), &HexCoord::new(0, 0));
     board.place_unchecked(&Piece::Marker(Player::White), &HexCoord::new(1, 0));
     board.place_unchecked(&Piece::Marker(Player::White), &HexCoord::new(2, 0));
-    let mut frontend = MCFrontend::new(&board, 1024, 1024, 1., 1.);
+    board.place_unchecked(&Piece::Marker(Player::White), &HexCoord::new(3, 0));
+    let mut frontend = Frontend::new(&board, 1024, 1024, 1., 1.);
     let mut game = Game::new(Player::White, Box::new(frontend), board);
 
     loop {

@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use crate::common::coord::*;
 use crate::core::entities::{Piece, Player};
 use crate::core::game::UiAction;
@@ -5,7 +7,8 @@ use crate::frontend::primitives::*;
 use macroquad::audio::PlaySoundParams;
 use macroquad::prelude::*;
 
-use super::mcview::ShapeId;
+use super::animation::*;
+use super::frontend::ShapeId;
 use super::mouse::{mouse_leave_enter_event, MouseEvent};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -22,12 +25,7 @@ pub trait Element {
     fn render(&self);
     fn update(&mut self, message: &Message) -> Option<UiAction>;
     fn handle_event(&self, event: &Event) -> Vec<Message>;
-
-    fn pos(&self) -> Point;
-    fn coord(&self) -> Option<HexCoord>;
     fn set_state(&mut self, state: ShapeState);
-    fn set_pos(&mut self, pos: Point);
-    fn contains(&self, pos: Point) -> bool;
     fn z_value(&self) -> i32;
 }
 
@@ -43,47 +41,130 @@ pub enum ElementType {
     Marker(f32),
 }
 
+pub struct AnimatedPieceElement {
+    element: PieceElement,
+    animation: Option<Box<dyn Animation>>,
+}
+
+impl AnimatedPieceElement {
+    pub fn new(piece: PieceElement, animation: Box<dyn Animation>) -> Self {
+        AnimatedPieceElement {
+            element: piece,
+            animation: Some(animation),
+        }
+    }
+
+    pub fn ring(
+        player: Player,
+        coord: HexCoord,
+        z_value: i32,
+        animation: Box<dyn Animation>,
+    ) -> Self {
+        let ring = PieceElement::new_ring_at_coord(coord, player, z_value);
+        Self::new(ring, animation)
+    }
+
+    pub fn marker(
+        player: Player,
+        coord: HexCoord,
+        z_value: i32,
+        animation: Box<dyn Animation>,
+    ) -> Self {
+        let marker = PieceElement::new_marker_at_coord(coord, player, z_value);
+        Self::new(marker, animation)
+    }
+}
+
+impl AnimatedPieceElement {
+    pub fn pos(&self) -> Point {
+        self.element.pos()
+    }
+
+    pub fn coord(&self) -> Option<HexCoord> {
+        self.element.coord()
+    }
+
+    pub fn set_pos(&mut self, pos: Point) {
+        self.element.set_pos(pos);
+    }
+
+    pub fn contains(&self, pos: Point) -> bool {
+        self.element.contains(pos)
+    }
+}
+
+impl Element for AnimatedPieceElement {
+    fn render(&self) {
+        self.element.render();
+    }
+
+    fn update(&mut self, message: &Message) -> Option<UiAction> {
+        let mut res = self.element.update(message);
+        if res.is_some() {
+            return res;
+        }
+
+        match message {
+            Message::FlipMarker(_) => {
+                let animation = FlipAnimation::new(WHITE, RED);
+                return Some(UiAction::AnimationInProgress);
+            }
+            Message::Tick => {
+                if self.animation.is_none() {
+                    return Some(UiAction::AnimationFinished);
+                }
+                let animation = self.animation.as_mut().unwrap();
+
+                animation.tick();
+                animation.apply(&mut self.element);
+                if self.animation.as_ref().unwrap().finished() {
+                    return Some(UiAction::AnimationFinished);
+                } else {
+                    return Some(UiAction::AnimationInProgress);
+                }
+            }
+            _ => (),
+        }
+        res
+    }
+
+    fn handle_event(&self, event: &Event) -> Vec<Message> {
+        let mut res = self.element.handle_event(event);
+
+        match event {
+            Event::FlipMarker(coord) => {
+                if Some(*coord) == self.element.coord {
+                    res.push(Message::FlipMarker(*coord));
+                }
+            }
+            _ => (),
+        }
+        if self.animation.is_some() {
+            res.push(Message::Tick);
+        }
+        res
+    }
+
+    fn set_state(&mut self, state: ShapeState) {
+        self.element.set_state(state);
+    }
+
+    fn z_value(&self) -> i32 {
+        self.element.z_value()
+    }
+}
+
 pub struct PieceElement {
     pos: Point,
     coord: Option<HexCoord>,
-    shape_type: ElementType,
+    pub shape_type: ElementType,
     color: Color,
     default_color: Color,
     hover_color: Color,
     other_color: Color,
     state: ShapeState,
     z_value: i32,
-    flip_animation: Option<f64>,
-}
-
-struct FlipAnimation {
-    start_time: f64,
-    duration: f64,
-    start_color: Color,
-    end_color: Color,
-    current_color: Color,
-}
-
-impl FlipAnimation {
-    fn new(start_color: Color, end_color: Color) -> Self {
-        FlipAnimation {
-            start_time: get_time(),
-            duration: 1.2,
-            start_color,
-            end_color,
-            current_color: start_color,
-        }
-    }
-
-    fn tick(&mut self) {}
-
-    fn apply(&self, piece: &mut PieceElement) {
-        piece.color = self.current_color;
-    }
-
-    fn finished(&self) -> bool {
-        get_time() - self.start_time > self.duration
-    }
+    mouse_entered: bool,
 }
 
 impl PieceElement {
@@ -105,7 +186,7 @@ impl PieceElement {
             hover_color: BLUE,
             state: ShapeState::Visible,
             z_value,
-            flip_animation: None,
+            mouse_entered: false,
         }
     }
 
@@ -158,6 +239,29 @@ impl PieceElement {
             }
         }
     }
+
+    pub fn set_color(&mut self, color: Color) {
+        self.color = color;
+    }
+
+    fn contains(&self, pos: Point) -> bool {
+        match self.shape_type {
+            ElementType::Marker(radius) => distance_squared(&self.pos, &pos) <= radius.powi(2),
+            ElementType::Ring(outer, _) => distance_squared(&self.pos, &pos) <= outer.powi(2),
+        }
+    }
+
+    fn pos(&self) -> Point {
+        self.pos
+    }
+
+    pub fn set_pos(&mut self, pos: Point) {
+        self.pos = pos;
+    }
+
+    fn coord(&self) -> Option<HexCoord> {
+        self.coord
+    }
 }
 
 impl Element for PieceElement {
@@ -172,16 +276,43 @@ impl Element for PieceElement {
         }
     }
 
-    fn pos(&self) -> Point {
-        self.pos
+    fn update(&mut self, event: &Message) -> Option<UiAction> {
+        match event {
+            Message::MouseEntered => {
+                self.color = self.hover_color;
+                self.mouse_entered = true;
+            }
+            Message::MouseLeft => self.color = self.default_color,
+            Message::ElementMoved(pt) => self.pos = *pt,
+            _ => (),
+        }
+        None
     }
 
-    fn set_pos(&mut self, pos: Point) {
-        self.pos = pos;
-    }
-
-    fn coord(&self) -> Option<HexCoord> {
-        self.coord
+    fn handle_event(&self, event: &Event) -> Vec<Message> {
+        let mut res = vec![];
+        match event {
+            Event::Mouse(mouse_event) => {
+                if self.state == ShapeState::Hoverable {
+                    if let Some(e) = mouse_leave_enter_event(mouse_event, |pt| self.contains(*pt)) {
+                        res.push(e);
+                        return res;
+                    };
+                    if self.contains(mouse_event.pos) {
+                        res.push(Message::MouseInside);
+                    }
+                }
+                if self.state == ShapeState::AtMousePointer {
+                    let pos = mouse_event
+                        .legal_move_coord
+                        .map(Point::from)
+                        .unwrap_or(mouse_event.pos);
+                    res.push(Message::ElementMoved(pos));
+                }
+            }
+            _ => (),
+        }
+        res
     }
 
     fn set_state(&mut self, state: ShapeState) {
@@ -192,67 +323,6 @@ impl Element for PieceElement {
             }
             _ => (),
         }
-    }
-
-    fn update(&mut self, event: &Message) -> Option<UiAction> {
-        //println!("REceived message: {:?}", event);
-        let mut res = None;
-        match event {
-            Message::MouseEntered => self.color = self.hover_color,
-            Message::MouseLeft => self.color = self.default_color,
-            Message::ElementMoved(pt) => self.pos = *pt,
-            Message::FlipMarker(_) => {
-                self.flip_animation = Some(get_time());
-                res = Some(UiAction::AnimationInProgress);
-            }
-            Message::Tick => {
-                println!("ANIM!!");
-                if self.flip_animation.is_some() && get_time() - self.flip_animation.unwrap() > 1. {
-                    res = Some(UiAction::AnimationFinished);
-                    self.flip_animation = None;
-                }
-                res = Some(UiAction::AnimationInProgress);
-            }
-            _ => (),
-        }
-        res
-    }
-
-    fn contains(&self, pos: Point) -> bool {
-        match self.shape_type {
-            ElementType::Marker(radius) => distance_squared(&self.pos, &pos) <= radius.powi(2),
-            ElementType::Ring(outer, _) => distance_squared(&self.pos, &pos) <= outer.powi(2),
-        }
-    }
-
-    fn handle_event(&self, event: &Event) -> Vec<Message> {
-        let mut res = vec![];
-        match event {
-            Event::Mouse(mouse_event) => {
-                if self.state == ShapeState::Hoverable {
-                    mouse_leave_enter_event(mouse_event, |pt| self.contains(*pt)).map(|e| {
-                        res.push(e);
-                    });
-                }
-                if self.state == ShapeState::AtMousePointer {
-                    let pos = mouse_event
-                        .legal_move_coord
-                        .map(Point::from)
-                        .unwrap_or(mouse_event.pos);
-                    res.push(Message::ElementMoved(pos));
-                }
-            }
-            Event::FlipMarker(coord) => {
-                if Some(*coord) == self.coord {
-                    res.push(Message::FlipMarker(*coord));
-                }
-            }
-            _ => (),
-        }
-        if self.flip_animation.is_some() {
-            res.push(Message::Tick);
-        }
-        res
     }
 
     fn z_value(&self) -> i32 {
@@ -280,6 +350,24 @@ impl FieldMarker {
     }
 }
 
+impl FieldMarker {
+    fn pos(&self) -> Point {
+        self.pos
+    }
+
+    fn coord(&self) -> Option<HexCoord> {
+        Some(self.coord)
+    }
+
+    fn set_pos(&mut self, pos: Point) {
+        self.pos = pos
+    }
+
+    fn contains(&self, pos: Point) -> bool {
+        distance_squared(&self.pos, &pos) <= self.mouse_radius.powi(2)
+    }
+}
+
 impl Element for FieldMarker {
     fn render(&self) {
         draw_circle(self.pos.0, self.pos.1, self.radius, BLUE);
@@ -304,24 +392,7 @@ impl Element for FieldMarker {
         }
         res
     }
-
-    fn pos(&self) -> Point {
-        self.pos
-    }
-
-    fn coord(&self) -> Option<HexCoord> {
-        Some(self.coord)
-    }
-
     fn set_state(&mut self, state: ShapeState) {}
-
-    fn set_pos(&mut self, pos: Point) {
-        self.pos = pos
-    }
-
-    fn contains(&self, pos: Point) -> bool {
-        distance_squared(&self.pos, &pos) <= self.mouse_radius.powi(2)
-    }
 
     fn z_value(&self) -> i32 {
         self.z_value
@@ -343,6 +414,16 @@ impl RingMoveLineElement {
             state: ShapeState::Invisible,
             z_value,
         }
+    }
+}
+
+impl RingMoveLineElement {
+    fn pos(&self) -> Point {
+        self.pos
+    }
+
+    fn set_pos(&mut self, pos: Point) {
+        self.pos = pos
     }
 }
 
@@ -391,24 +472,8 @@ impl Element for RingMoveLineElement {
         res
     }
 
-    fn pos(&self) -> Point {
-        self.pos
-    }
-
-    fn coord(&self) -> Option<HexCoord> {
-        None
-    }
-
     fn set_state(&mut self, state: ShapeState) {
         self.state = state;
-    }
-
-    fn set_pos(&mut self, pos: Point) {
-        self.pos = pos
-    }
-
-    fn contains(&self, pos: Point) -> bool {
-        false
     }
 
     fn z_value(&self) -> i32 {
@@ -426,10 +491,11 @@ pub struct RunBBoxElement {
     z_value: i32,
     color: Color,
     value: Option<HexCoord>,
+    mouse_entered: bool,
 }
 
 impl RunBBoxElement {
-    pub fn new(corners: [Point; 4]) -> Self {
+    pub fn new(corners: [Point; 4], z_value: i32) -> Self {
         let corners = corners.map(|v| Vec2::new(v.0, v.1));
         let dir = (corners[1] - corners[0]).normalize();
         let perp = Vec2::new(dir.y, -dir.x);
@@ -438,7 +504,7 @@ impl RunBBoxElement {
 
         Self {
             corners,
-            z_value: 3,
+            z_value,
             dir,
             perp,
             color: BLACK,
@@ -446,18 +512,24 @@ impl RunBBoxElement {
             height,
             coord: None,
             value: None,
+            mouse_entered: false,
         }
     }
 
-    pub fn from_segment_coords(coord0: HexCoord, coord1: HexCoord, height: f32) -> Self {
-        Self::from_segment_points(coord0.into(), coord1.into(), height)
+    pub fn from_segment_coords(
+        coord0: HexCoord,
+        coord1: HexCoord,
+        height: f32,
+        z_value: i32,
+    ) -> Self {
+        Self::from_segment_points(coord0.into(), coord1.into(), height, z_value)
     }
 
     pub fn set_coord(&mut self, coord: HexCoord) {
         self.coord = Some(coord);
     }
 
-    pub fn from_segment_points(pt0: Point, pt1: Point, height: f32) -> Self {
+    pub fn from_segment_points(pt0: Point, pt1: Point, height: f32, z_value: i32) -> Self {
         let v1 = Vec2::from((pt0.0, pt0.1));
         let v2 = Vec2::from((pt1.0, pt1.1));
         let dir = (v2 - v1).normalize();
@@ -473,7 +545,7 @@ impl RunBBoxElement {
 
         Self {
             corners,
-            z_value: 3,
+            z_value,
             dir,
             perp,
             color: BLACK,
@@ -481,7 +553,33 @@ impl RunBBoxElement {
             height,
             coord: None,
             value: None,
+            mouse_entered: false,
         }
+    }
+
+    fn pos(&self) -> Point {
+        Point(self.corners[0].x, self.corners[0].y)
+    }
+
+    fn coord(&self) -> Option<HexCoord> {
+        None
+    }
+
+    fn set_pos(&mut self, pos: Point) {}
+
+    fn contains(&self, pos: Point) -> bool {
+        let height = (self.corners[0] - self.corners[1]).length();
+        let start = self.corners[0] - self.perp * height / 2.;
+        let pt = vec2(pos.0, pos.1);
+
+        let diff = pt - start;
+
+        let proj = diff.dot(self.dir);
+        if proj < 0. || proj > (self.corners[1] - self.corners[2]).length() {
+            return false;
+        }
+
+        (diff - proj * self.dir).length_squared() <= (height / 2.).powi(2)
     }
 }
 
@@ -504,6 +602,7 @@ impl Element for RunBBoxElement {
         match message {
             Message::MouseEntered => {
                 self.color = GREEN;
+                self.mouse_entered = true;
                 None
             }
             Message::MouseLeft => {
@@ -519,9 +618,13 @@ impl Element for RunBBoxElement {
         let mut res = vec![];
         match event {
             Event::Mouse(mouse_event) => {
-                mouse_leave_enter_event(mouse_event, |pt| self.contains(*pt)).map(|e| {
+                if let Some(e) = mouse_leave_enter_event(mouse_event, |pt| self.contains(*pt)) {
                     res.push(e);
-                });
+                    return res;
+                };
+                if self.contains(mouse_event.pos) {
+                    res.push(Message::MouseInside);
+                }
                 if mouse_event.left_clicked
                     && self.contains(mouse_event.pos)
                     && self.coord.is_some()
@@ -534,32 +637,7 @@ impl Element for RunBBoxElement {
         res
     }
 
-    fn pos(&self) -> Point {
-        Point(self.corners[0].x, self.corners[0].y)
-    }
-
-    fn coord(&self) -> Option<HexCoord> {
-        None
-    }
-
     fn set_state(&mut self, state: ShapeState) {}
-
-    fn set_pos(&mut self, pos: Point) {}
-
-    fn contains(&self, pos: Point) -> bool {
-        let height = (self.corners[0] - self.corners[1]).length();
-        let start = self.corners[0] - self.perp * height / 2.;
-        let pt = vec2(pos.0, pos.1);
-
-        let diff = pt - start;
-
-        let proj = diff.dot(self.dir);
-        if proj < 0. || proj > (self.corners[1] - self.corners[2]).length() {
-            return false;
-        }
-
-        (diff - proj * self.dir).length_squared() <= (height / 2.).powi(2)
-    }
 
     fn z_value(&self) -> i32 {
         self.z_value

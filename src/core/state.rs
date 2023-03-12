@@ -111,7 +111,7 @@ impl State {
 
     pub fn undo(&mut self) -> bool {
         if let Some(m) = self.history.pop() {
-            self.last_state_change = m.undo(self);
+            m.undo(self);
             return true;
         }
         false
@@ -127,18 +127,17 @@ impl State {
                 return false;
             }
             println!("EXECUTING");
-            self.last_state_change = some_move.execute(self);
-            self.history.push(some_move);
+            some_move.execute(self);
             return true;
         }
         false
     }
 
-    fn last_state_change(&self) -> Vec<StateChange> {
+    pub fn last_state_change(&self) -> Vec<StateChange> {
         self.last_state_change.clone()
     }
 
-    fn current_player_runs(&self) -> &Vec<Vec<HexCoord>> {
+    pub fn current_player_runs(&self) -> &Vec<Vec<HexCoord>> {
         match self.current_player {
             Player::Black => &self.runs_black,
             Player::White => &self.runs_white,
