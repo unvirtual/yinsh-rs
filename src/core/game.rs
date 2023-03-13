@@ -1,5 +1,6 @@
 use crate::common::coord::*;
 use crate::core::actions::*;
+use crate::core::command::*;
 use crate::core::ai::*;
 use crate::core::board::*;
 use crate::core::entities::*;
@@ -31,7 +32,6 @@ pub struct Game {
     view: Box<dyn View>,
     human_player: Player,
     ai: RandomAI,
-    view_update_scheduled: bool,
 }
 
 impl Game {
@@ -41,10 +41,20 @@ impl Game {
             view,
             human_player,
             ai: RandomAI::new(human_player.other(), 3),
-            view_update_scheduled: false,
         };
         game.view.request_update();
         game
+    }
+
+    pub fn execute_for_coord(&mut self, coord: &HexCoord) -> bool {
+        if let Some(some_move) = self.state.legal_moves().into_iter().find(|m| m.coord() == *coord) {
+            if !some_move.is_legal(&self.state) {
+                return false;
+            }
+            some_move.execute(&mut self.state);
+            return true;
+        }
+        false
     }
 
     // TOD: State update missing after White player move. Ai kicks in an blocks animation/update ...
@@ -63,7 +73,7 @@ impl Game {
         }
 
         let successful_action = match ui_action {
-            UiAction::ActionAtCoord(coord) => self.state.execute_for_coord(&coord),
+            UiAction::ActionAtCoord(coord) => self.execute_for_coord(&coord),
             UiAction::Undo => { println!("Received undo!"); self.state.undo() },
             _ => false,
         };

@@ -4,31 +4,6 @@ use std::f32::consts::PI;
 
 use crate::{common::coord::{Point, HexCoordF, HexCoord}, core::entities::Player};
 
-use super::mouse::MouseEvent;
-
-#[derive(PartialEq, Clone, Debug)]
-pub enum Message {
-    MouseEntered,
-    MouseLeft,
-    MouseInside,
-    ElementMoved(Point),
-    ElementShow,
-    ElementHide,
-    MouseClicked(HexCoord),
-    Tick,
-    FlipMarker(HexCoord),
-}
-
-#[derive(PartialEq, Clone, Debug)]
-pub enum Event {
-    Mouse(MouseEvent),
-    FlipMarker(HexCoord),
-    RemoveMarker(HexCoord),
-    RemoveRing(HexCoord),
-    MoveRing(HexCoord, HexCoord),
-    PlaceRing(Player, HexCoord),
-}
-
 pub fn build_grid_lines(radius: f32) -> Vec<[HexCoordF; 2]> {
     let dx: f32 = 0.5 * (3. as f32).sqrt();
     let mut res = Vec::new();

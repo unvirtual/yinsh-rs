@@ -3,6 +3,7 @@ use crate::core::board::*;
 use crate::core::entities::*;
 
 use super::actions::*;
+use super::command::*;
 
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum Phase {
@@ -75,7 +76,14 @@ impl State {
         }
     }
 
-    pub fn move_ring(&mut self, player: &Player, from: &HexCoord, to: &HexCoord, remove_from: bool, place_to: bool) { 
+    pub fn move_ring(
+        &mut self,
+        player: &Player,
+        from: &HexCoord,
+        to: &HexCoord,
+        remove_from: bool,
+        place_to: bool,
+    ) {
         if place_to {
             let piece = Piece::Ring(*player);
             self.board.place_unchecked(&piece, to);
@@ -112,7 +120,8 @@ impl State {
 
     pub fn flip_markers(&mut self, from: &HexCoord, to: &HexCoord) {
         let flipped = self.board.flip_between(from, to);
-        self.last_state_change.extend(flipped.into_iter().map(StateChange::MarkerFlipped));
+        self.last_state_change
+            .extend(flipped.into_iter().map(StateChange::MarkerFlipped));
     }
 
     pub fn legal_moves(&self) -> Vec<Action> {
@@ -122,12 +131,12 @@ impl State {
                 .board_coords()
                 .iter()
                 .filter(|x| self.board.occupied(x).is_none())
-                .map(|c| Action::from(PlaceRing { pos: *c }))
+                .map(|c| Action::from(PlaceRing { coord: *c }))
                 .collect(),
             Phase::PlaceMarker => self
                 .board
                 .player_rings(self.current_player)
-                .map(|c| Action::from(PlaceMarker { pos: *c }))
+                .map(|c| Action::from(PlaceMarker { coord: *c }))
                 .collect::<Vec<Action>>(),
             Phase::MoveRing(from) => self
                 .board
@@ -150,7 +159,7 @@ impl State {
                     Action::from(RemoveRun {
                         run_idx: idx,
                         run: run.clone(),
-                        pos: run[0],
+                        coord: run[0],
                     })
                 })
                 .collect(),
@@ -160,7 +169,7 @@ impl State {
                 .map(|c| {
                     Action::from(RemoveRing {
                         player: self.current_player,
-                        pos: *c,
+                        coord: *c,
                     })
                 })
                 .collect::<Vec<Action>>(),
@@ -175,22 +184,6 @@ impl State {
     pub fn undo(&mut self) -> bool {
         if let Some(m) = self.history.pop() {
             m.undo(self);
-            return true;
-        }
-        false
-    }
-
-    pub fn execute_for_coord(&mut self, coord: &HexCoord) -> bool {
-        // cache??
-        println!("Trying action for {:?}", coord);
-        if let Some(some_move) = self.legal_moves().into_iter().find(|m| m.coord() == *coord) {
-            println!("move found: {:?}", some_move);
-            if !some_move.is_legal(self) {
-                println!("BUT ILLEGAL");
-                return false;
-            }
-            println!("EXECUTING");
-            some_move.execute(self);
             return true;
         }
         false

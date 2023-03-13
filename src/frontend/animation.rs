@@ -3,12 +3,12 @@ use std::f32::consts::PI;
 use crate::common::coord::Point;
 use macroquad::prelude::*;
 
-use super::element::*;
+use super::elements::token::{Token, TokenType};
 
 pub trait Animation {
     fn tick(&mut self);
     fn finished(&self) -> bool;
-    fn apply(&self, marker: &mut PieceElement);
+    fn apply(&self, marker: &mut Token);
 }
 
 #[derive(Clone)]
@@ -45,7 +45,7 @@ impl Animation for FlipAnimation {
         );
     }
 
-    fn apply(&self, marker: &mut PieceElement) {
+    fn apply(&self, marker: &mut Token) {
         marker.set_color(self.current_color);
     }
 
@@ -88,12 +88,12 @@ impl Animation for RemoveAnimation {
         self.value = self.amplitude * delta.sin();
     }
 
-    fn apply(&self, marker: &mut PieceElement) {
+    fn apply(&self, marker: &mut Token) {
         match marker.shape_type {
-            ElementType::Ring(r1, r2) => {
-                marker.shape_type = ElementType::Ring(self.value * r1, self.value * r2)
+            TokenType::Ring(r1, r2) => {
+                marker.shape_type = TokenType::Ring(self.value * r1, self.value * r2)
             }
-            ElementType::Marker(r) => marker.shape_type = ElementType::Marker(self.value * r),
+            TokenType::Marker(r) => marker.shape_type = TokenType::Marker(self.value * r),
         }
     }
 
@@ -137,7 +137,7 @@ impl Animation for MoveAnimation {
         }
     }
 
-    fn apply(&self, ring: &mut PieceElement) {
+    fn apply(&self, ring: &mut Token) {
         ring.set_pos(self.current_pos);
     }
 

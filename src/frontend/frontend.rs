@@ -1,32 +1,29 @@
-use std::collections::HashMap;
 use std::collections::HashSet;
-use std::ops::Deref;
 
 use crate::common::coord::*;
 use crate::core::actions::*;
 use crate::core::board::*;
-use crate::core::board::*;
+use crate::core::command::*;
 use crate::core::entities::*;
 use crate::core::game::*;
 use crate::core::state::*;
 use crate::frontend::animation::FlipAnimation;
 use crate::frontend::animation::MoveAnimation;
 use crate::frontend::animation::RemoveAnimation;
-use crate::frontend::mouse;
-use macroquad::hash;
-use macroquad::prelude::*;
-use macroquad::ui::root_ui;
-use macroquad::ui::widgets;
-use macroquad::ui::Ui;
-use macroquad::ui::widgets::Group;
 
 use super::controller::Controller;
 use super::controller::ElementId;
-use super::element::*;
+use super::element::Element;
+use super::element::ShapeState;
+use super::elements::allowed_moves_indicator::*;
+use super::elements::animated_token::AnimatedToken;
+use super::elements::field_marker::*;
+use super::elements::run_indicator::*;
+use super::elements::token::*;
+use super::events::Event;
 use super::mouse::MouseHandler;
 use super::primitives::build_grid_lines;
-use super::primitives::Event;
-use super::primitives::Message;
+use macroquad::prelude::*;
 
 pub type ShapeId = usize;
 
@@ -135,12 +132,12 @@ impl Frontend {
     }
 
     fn add_ring_element(&mut self, c: HexCoord, player: Player) {
-        let mut element = Box::new(PieceElement::new_ring_at_coord(c, player, 1));
-        match self.phase {
-            Phase::RemoveRing => element.set_state(ShapeState::Hoverable),
-            _ => (),
-        }
-        self.controller.add_element(element);
+        let mut builder = TokenBuilder::new();
+        builder.ring(player).coord(c).z_value(1);
+        if self.phase == Phase::RemoveRing {
+            builder.remove_hover_color().state(ShapeState::Hoverable);
+        };
+        self.controller.add_element(Box::new(builder.build()));
     }
 
     fn add_marker_element(&mut self, c: HexCoord, player: Player, state: &State) {
@@ -148,12 +145,16 @@ impl Frontend {
         if self.phase == Phase::RemoveRun && runs.iter().flatten().find(|&x| *x == c).is_some() {
             return;
         }
-        let element = Box::new(PieceElement::new_marker_at_coord(c, player, 1));
-        self.controller.add_element(element);
+        let token = TokenBuilder::new()
+            .marker(player)
+            .coord(c)
+            .z_value(1)
+            .build();
+        self.controller.add_element(Box::new(token));
     }
 
     fn add_run_elements(&mut self, r: &Vec<HexCoord>, z_value: i32) {
-        let mut box_element = Box::new(RunBBoxElement::from_segment_coords(
+        let mut box_element = Box::new(RunIndicator::from_segment_coords(
             r[0],
             *r.last().unwrap(),
             0.5,
@@ -163,13 +164,13 @@ impl Frontend {
         let box_id = self.controller.add_element(box_element);
         self.run_bboxes.push(box_id);
         for c in r {
-            let mut element = Box::new(PieceElement::new_marker_at_coord(
-                *c,
-                self.current_player,
-                1,
-            ));
-            element.set_state(ShapeState::Hoverable);
-            let marker_id = self.controller.add_element_inactive(element);
+            let token = TokenBuilder::new()
+                .marker(self.current_player)
+                .coord(*c)
+                .z_value(1)
+                .state(ShapeState::Hoverable)
+                .build();
+            let marker_id = self.controller.add_element_inactive(Box::new(token));
             self.controller.add_subscriber(box_id, marker_id);
         }
     }
@@ -178,15 +179,13 @@ impl Frontend {
         match self.phase {
             Phase::MoveRing(from) => {
                 println!("Adding mouse element");
-                let mut element = Box::new(PieceElement::new_ring_at_point(
-                    mouse_pos,
-                    self.current_player,
-                    10,
-                ));
+                let mut element =
+                    Box::new(Token::new_ring_at_point(mouse_pos, self.current_player, 10));
                 element.set_state(ShapeState::AtMousePointer);
                 self.controller.add_element(element);
 
-                let mut element = Box::new(RingMoveLineElement::new(from.into(), from.into(), -1));
+                let mut element =
+                    Box::new(AllowedMovesIndicator::new(from.into(), from.into(), -1));
                 self.controller.add_element(element);
             }
             _ => (),
@@ -196,32 +195,48 @@ impl Frontend {
     fn add_won_rings(&mut self, state: &State) {
         for i in 0..state.points_black {
             let pt = self.black_ring_slots[i];
-            let element = Box::new(PieceElement::new_ring_at_point(pt, Player::Black, 1));
-            self.controller.add_element(element);
+            let token = TokenBuilder::new()
+                .ring(Player::Black)
+                .pos(pt)
+                .z_value(1)
+                .build();
+            self.controller.add_element(Box::new(token));
         }
         for i in 0..state.points_white {
             let pt = self.white_ring_slots[i];
-            let element = Box::new(PieceElement::new_ring_at_point(pt, Player::White, 1));
-            self.controller.add_element(element);
+            let token = TokenBuilder::new()
+                .ring(Player::White)
+                .pos(pt)
+                .z_value(1)
+                .build();
+            self.controller.add_element(Box::new(token));
         }
     }
 
     fn create_animations(&mut self, state: &State) -> HashSet<HexCoord> {
         let mut skip_coords = HashSet::new();
         for sc in &state.last_state_change() {
-            match sc {
+            let token: Option<Box<dyn Element>> = match sc {
                 StateChange::RingPlaced(player, c) => {
                     skip_coords.insert(*c);
-                    let mut element = Box::new(PieceElement::new_ring_at_coord(*c, *player, 1));
-                    self.controller.add_element(element);
+                    let token = TokenBuilder::new()
+                        .coord(*c)
+                        .ring(*player)
+                        .z_value(1)
+                        .build();
+                    Some(Box::new(token))
                 }
                 StateChange::RingMoved(player, from, to) => {
                     if player == &Player::Black {
                         skip_coords.insert(*to);
-                        let animation =
-                            MoveAnimation::new_box(Point::from(*from), Point::from(*to));
-                        let element = AnimatedPieceElement::ring(*player, *from, 1, animation);
-                        self.controller.add_element(Box::new(element));
+                        let token = TokenBuilder::new()
+                            .ring(*player)
+                            .coord(*from)
+                            .z_value(1)
+                            .animate(MoveAnimation::new_box(Point::from(*from), Point::from(*to)));
+                        Some(Box::new(token))
+                    } else {
+                        None
                     }
                 }
                 StateChange::MarkerFlipped(c) => {
@@ -237,24 +252,30 @@ impl Frontend {
                     } else {
                         BLACK
                     };
-                    let mut element = Box::new(AnimatedPieceElement::new(
-                        PieceElement::new_marker_at_coord(*c, player, 1),
-                        FlipAnimation::new_box(start_color, end_color),
-                    ));
-                    self.controller.add_element(element);
+                    let token = TokenBuilder::new()
+                        .marker(player)
+                        .coord(*c)
+                        .z_value(1)
+                        .animate(FlipAnimation::new_box(start_color, end_color));
+                    Some(Box::new(token))
                 }
                 StateChange::MarkerPlaced(player, c) => {
                     skip_coords.insert(*c);
-                    let mut element = Box::new(PieceElement::new_marker_at_coord(*c, *player, 1));
-                    self.controller.add_element(element);
+                    let token = TokenBuilder::new()
+                        .marker(*player)
+                        .coord(*c)
+                        .z_value(1)
+                        .build();
+                    Some(Box::new(token))
                 }
                 StateChange::MarkerRemoved(player, c) => {
                     skip_coords.insert(*c);
-                    let mut element = Box::new(AnimatedPieceElement::new(
-                        PieceElement::new_marker_at_coord(*c, *player, 1),
-                        RemoveAnimation::new_box(1.2),
-                    ));
-                    self.controller.add_element(element);
+                    let token = TokenBuilder::new()
+                        .marker(*player)
+                        .coord(*c)
+                        .z_value(1)
+                        .animate(RemoveAnimation::new_box(1.2));
+                    Some(Box::new(token))
                 }
                 StateChange::RingRemoved(player, c) => {
                     if state.current_phase == Phase::PlaceMarker {
@@ -264,14 +285,19 @@ impl Frontend {
                         } else {
                             self.black_ring_slots[state.points_black - 1]
                         };
-                        let mut element = Box::new(AnimatedPieceElement::new(
-                            PieceElement::new_ring_at_coord(*c, *player, 1),
-                            MoveAnimation::new_box(Point::from(*c), to_pt),
-                        ));
-                        self.controller.add_element(element);
+
+                        let token = TokenBuilder::new()
+                            .ring(*player)
+                            .coord(*c)
+                            .z_value(1)
+                            .animate(MoveAnimation::new_box(Point::from(*c), to_pt));
+                        Some(Box::new(token))
+                    } else {
+                        None
                     }
                 }
-            }
+            };
+            token.map(|t| self.controller.add_element(t));
         }
         skip_coords
     }

@@ -1,12 +1,12 @@
 use macroquad::prelude::{is_mouse_button_pressed, mouse_position, MouseButton};
 
-use crate::core::actions::Command;
+use crate::core::command::Command;
 use crate::{
     common::coord::{HexCoord, Point},
     core::actions::Action,
 };
 
-use super::primitives::Message;
+use super::events::Message;
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct MouseEvent {
@@ -25,8 +25,6 @@ where
     let mut msg = None;
     let from = &mouse_event.last_pos;
     let to = &mouse_event.pos;
-
-    //println!("from: {:?} to: {:?}", from, to);
 
     if !contains(from) && contains(to) {
         println!("mouse enter");

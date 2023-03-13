@@ -1,15 +1,8 @@
 use enum_dispatch::enum_dispatch;
 
 use crate::common::coord::*;
+use super::command::*;
 use super::{state::*, entities::*};
-
-#[enum_dispatch]
-pub trait Command {
-    fn is_legal(&self, state: &State) -> bool;
-    fn execute(&self, state: &mut State);
-    fn undo(&self, state: &mut State);
-    fn coord(&self) -> HexCoord;
-}
 
 #[enum_dispatch(Command)]
 #[derive(Debug, Clone)]
@@ -23,12 +16,12 @@ pub enum Action {
 
 #[derive(Debug, Clone)]
 pub struct PlaceRing {
-    pub pos: HexCoord,
+    pub coord: HexCoord,
 }
 
 #[derive(Debug, Clone)]
 pub struct PlaceMarker {
-    pub pos: HexCoord,
+    pub coord: HexCoord,
 }
 
 #[derive(Debug, Clone)]
@@ -42,23 +35,23 @@ pub struct MoveRing {
 pub struct RemoveRun {
     pub run_idx: usize,
     pub run: Vec<HexCoord>,
-    pub pos: HexCoord,
+    pub coord: HexCoord,
 }
 
 #[derive(Debug, Clone)]
 pub struct RemoveRing {
-    pub pos: HexCoord,
+    pub coord: HexCoord,
     pub player: Player,
 }
 
 impl Command for PlaceRing {
     fn is_legal(&self, state: &State) -> bool {
-        state.at_phase(&Phase::PlaceRing) && state.board.free_board_field(&self.pos)
+        state.at_phase(&Phase::PlaceRing) && state.board.free_board_field(&self.coord)
     }
 
     fn execute(&self, state: &mut State) {
         state.new_action();
-        state.place_ring(&state.current_player.clone(), &self.pos);
+        state.place_ring(&state.current_player.clone(), &self.coord);
 
         if state.board.rings().count() > 9 {
             state.set_phase(Phase::PlaceMarker);
@@ -70,37 +63,37 @@ impl Command for PlaceRing {
 
     fn undo(&self, state: &mut State) {
         state.new_action();
-        state.remove_ring(&state.current_player.clone(), &self.pos);
+        state.remove_ring(&state.current_player.clone(), &self.coord);
         state.set_phase(Phase::PlaceRing);
         state.next_player();
     }
 
     fn coord(&self) -> HexCoord {
-        self.pos
+        self.coord
     }
 }
 
 impl Command for PlaceMarker {
     fn is_legal(&self, state: &State) -> bool {
         state.at_phase(&Phase::PlaceMarker)
-            && state.board.player_ring_at(&self.pos, &state.current_player)
+            && state.board.player_ring_at(&self.coord, &state.current_player)
     }
 
     fn execute(&self, state: &mut State) {
         state.new_action();
-        state.place_marker(&state.current_player.clone(), &self.pos);
-        state.set_phase(Phase::MoveRing(self.pos));
+        state.place_marker(&state.current_player.clone(), &self.coord);
+        state.set_phase(Phase::MoveRing(self.coord));
         state.history.push(Action::from(self.clone()));
     }
 
     fn undo(&self, state: &mut State) {
         state.new_action();
-        state.place_ring(&state.current_player.clone(), &self.pos);
+        state.place_ring(&state.current_player.clone(), &self.coord);
         state.set_phase(Phase::PlaceMarker);
     }
 
     fn coord(&self) -> HexCoord {
-        self.pos
+        self.coord
     }
 }
 
@@ -179,14 +172,14 @@ impl Command for RemoveRun {
     }
 
     fn coord(&self) -> HexCoord {
-        self.pos
+        self.coord
     }
 }
 
 impl Command for RemoveRing {
     fn is_legal(&self, state: &State) -> bool {
         state.at_phase(&Phase::RemoveRing)
-            && state.board.player_ring_at(&self.pos, &state.current_player)
+            && state.board.player_ring_at(&self.coord, &state.current_player)
             && state.current_player == self.player
     }
 
@@ -194,7 +187,7 @@ impl Command for RemoveRing {
         state.new_action();
         state.history.push(Action::from(self.clone()));
 
-        state.remove_ring(&state.current_player.clone(), &self.pos);
+        state.remove_ring(&state.current_player.clone(), &self.coord);
 
         let current_player = state.current_player;
         state.inc_score(&current_player);
@@ -225,11 +218,11 @@ impl Command for RemoveRing {
         state.dec_score(&self.player);
         state.set_phase(Phase::RemoveRing);
 
-        state.place_ring(&state.current_player.clone(), &self.pos);
+        state.place_ring(&state.current_player.clone(), &self.coord);
     }
 
     fn coord(&self) -> HexCoord {
-        self.pos
+        self.coord
     }
 }
 
@@ -245,7 +238,7 @@ mod test {
         state.current_player = Player::White;
 
         let c = HexCoord::new(2, 4);
-        let action = PlaceRing { pos: c };
+        let action = PlaceRing { coord: c };
 
         assert!(action.is_legal(&state));
         action.execute(&mut state);
@@ -267,7 +260,7 @@ mod test {
         state.board
             .place_unchecked(&Piece::Marker(Player::White), &c);
 
-        let action = PlaceRing { pos: c };
+        let action = PlaceRing { coord: c };
 
         assert!(!action.is_legal(&state));
     }
@@ -279,7 +272,7 @@ mod test {
         state.set_phase(Phase::PlaceMarker);
 
         let c = HexCoord::new(2, 4);
-        let action = PlaceRing { pos: c };
+        let action = PlaceRing { coord: c };
 
         assert!(!action.is_legal(&state));
     }
@@ -294,7 +287,7 @@ mod test {
             .place_unchecked(&Piece::Marker(Player::White), &occupied);
 
         let c = HexCoord::new(2, 4);
-        let action = PlaceRing { pos: c };
+        let action = PlaceRing { coord: c };
 
         assert!(action.is_legal(&state));
         action.execute(&mut state);
@@ -321,7 +314,7 @@ mod test {
 
         let c = HexCoord::new(2, 4);
 
-        let action = PlaceMarker { pos: c };
+        let action = PlaceMarker { coord: c };
         state.board.place_unchecked(&Piece::Ring(Player::White), &c);
         assert!(action.is_legal(&state));
 
@@ -341,7 +334,7 @@ mod test {
         state.set_phase(Phase::PlaceMarker);
 
         let c = HexCoord::new(2, 4);
-        let action = PlaceMarker { pos: c };
+        let action = PlaceMarker { coord: c };
 
         assert!(!action.is_legal(&state));
     }
@@ -354,11 +347,11 @@ mod test {
 
         let c = HexCoord::new(2, 4);
         state.board.place_unchecked(&Piece::Ring(Player::Black), &c);
-        let action = PlaceMarker { pos: c };
+        let action = PlaceMarker { coord: c };
         assert!(!action.is_legal(&state));
 
         state.board.place_unchecked(&Piece::Ring(Player::White), &c);
-        let action = PlaceMarker { pos: c };
+        let action = PlaceMarker { coord: c };
         assert!(action.is_legal(&state));
     }
 
@@ -369,7 +362,7 @@ mod test {
         state.set_phase(Phase::MoveRing(HexCoord::new(0, 0)));
 
         let c = HexCoord::new(2, 4);
-        let action = PlaceMarker { pos: c };
+        let action = PlaceMarker { coord: c };
 
         assert!(!action.is_legal(&state));
     }
@@ -382,7 +375,7 @@ mod test {
 
         let c = HexCoord::new(2, 4);
         state.board.place_unchecked(&Piece::Ring(Player::White), &c);
-        let action = PlaceMarker { pos: c };
+        let action = PlaceMarker { coord: c };
         assert!(action.is_legal(&state));
 
         assert!(action.is_legal(&state));
@@ -631,7 +624,7 @@ mod test {
         let action = RemoveRun {
             run: run.clone(),
             run_idx: 0,
-            pos: run[0],
+            coord: run[0],
         };
         assert!(action.is_legal(&state));
         action.execute(&mut state);
@@ -667,7 +660,7 @@ mod test {
         let action = RemoveRun {
             run: run.clone(),
             run_idx: 0,
-            pos: run[0],
+            coord: run[0],
         };
         assert!(!action.is_legal(&state));
     }
@@ -694,7 +687,7 @@ mod test {
         let action = RemoveRun {
             run: run.clone(),
             run_idx: 2,
-            pos: run[0],
+            coord: run[0],
         };
         assert!(!action.is_legal(&state));
     }
@@ -721,7 +714,7 @@ mod test {
         let action = RemoveRun {
             run: run.clone(),
             run_idx: 0,
-            pos: run[0],
+            coord: run[0],
         };
         assert!(action.is_legal(&state));
         action.execute(&mut state);
@@ -749,7 +742,7 @@ mod test {
 
             // not connected
             let action = RemoveRing {
-                pos: c.clone(),
+                coord: c.clone(),
                 player,
             };
             match player {
@@ -781,7 +774,7 @@ mod test {
 
         // not connected
         let action = RemoveRing {
-            pos: c.clone(),
+            coord: c.clone(),
             player: Player::White,
         };
         assert!(!action.is_legal(&state));
@@ -798,7 +791,7 @@ mod test {
 
         // not connected
         let action = RemoveRing {
-            pos: HexCoord::new(0, 0),
+            coord: HexCoord::new(0, 0),
             player: Player::White,
         };
         assert!(!action.is_legal(&state));
@@ -815,7 +808,7 @@ mod test {
 
         // not connected
         let action = RemoveRing {
-            pos: c.clone(),
+            coord: c.clone(),
             player: Player::Black,
         };
         assert!(!action.is_legal(&state));
@@ -839,7 +832,7 @@ mod test {
         let c = HexCoord::new(2, 3);
         state.board.place_unchecked(&Piece::Ring(Player::White), &c);
         let action = RemoveRing {
-            pos: c.clone(),
+            coord: c.clone(),
             player: Player::White,
         };
         // this is already set by previous step
@@ -874,7 +867,7 @@ mod test {
         let c = HexCoord::new(2, 3);
         state.board.place_unchecked(&Piece::Ring(Player::White), &c);
         let action = RemoveRing {
-            pos: c.clone(),
+            coord: c.clone(),
             player: Player::White,
         };
         // this is already set by previous step
@@ -903,7 +896,7 @@ mod test {
 
             // not connected
             let action = RemoveRing {
-                pos: c.clone(),
+                coord: c.clone(),
                 player,
             };
             match player {

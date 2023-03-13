@@ -6,7 +6,7 @@ use crate::{common::coord::Point, core::game::UiAction};
 use super::{
     element::Element,
     mouse::{self, MouseEvent, MouseHandler},
-    primitives::{Event, Message},
+    events::{Event, Message},
 };
 
 pub type ElementId = usize;
